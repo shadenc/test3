@@ -11,8 +11,7 @@ import logging
 from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
-import random
-
+from secrets import SystemRandom
 
 # Import our existing scrapers
 from ownership import TadawulOwnershipScraper
@@ -25,6 +24,8 @@ from scrape_quarterly_net_profit import (
     setup_stealth_browser as setup_net_profit_browser,
     process_company_with_retry as process_net_profit_company,
 )
+
+_stealth_rng = SystemRandom()
 
 # Configure logging
 logging.basicConfig(
@@ -263,7 +264,7 @@ class QuarterlyUpdateOrchestrator:
 
                 # Add delay between companies
                 if i < len(symbols):
-                    delay = random.uniform(2, 5)
+                    delay = _stealth_rng.uniform(2, 5)
                     await asyncio.sleep(delay)
 
         finally:
@@ -320,7 +321,7 @@ class QuarterlyUpdateOrchestrator:
 
                 # Add delay between companies
                 if i < len(symbols):
-                    delay = random.uniform(2, 5)
+                    delay = _stealth_rng.uniform(2, 5)
                     await asyncio.sleep(delay)
 
         finally:

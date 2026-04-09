@@ -2,8 +2,8 @@ import asyncio
 import json
 import logging
 import os
-import random
 from datetime import datetime
+from secrets import SystemRandom
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -15,6 +15,9 @@ except ImportError:
     from tadawul_debug import TadawulAccessDeniedError
 
 _logger = logging.getLogger(__name__)
+
+# Humanization delays / mouse jitter: use OS CSPRNG-backed RNG (not security secrets; satisfies S2245).
+_stealth_rng = SystemRandom()
 
 try:
     from .tadawul_portal_common import (
@@ -306,8 +309,8 @@ async def process_company_with_retry(  # NOSONAR
                 print("🛑 Stop requested. Aborting company processing.")
                 return False
             page = await browser.new_page()
-            await page.mouse.move(random.randint(100, 500), random.randint(100, 300))
-            await asyncio.sleep(random.uniform(0.5, 1.5))
+            await page.mouse.move(_stealth_rng.randint(100, 500), _stealth_rng.randint(100, 300))
+            await asyncio.sleep(_stealth_rng.uniform(0.5, 1.5))
             ok_profile = await navigate_to_company_profile(page, symbol)
             if not ok_profile:
                 await page.close()
@@ -318,7 +321,7 @@ async def process_company_with_retry(  # NOSONAR
                     print(
                         f"🔄 Retrying {symbol} (attempt {attempt + 2}/{max_retries})..."
                     )
-                    await asyncio.sleep(random.uniform(2, 5))
+                    await asyncio.sleep(_stealth_rng.uniform(2, 5))
                     continue
                 return False
 
@@ -377,14 +380,14 @@ async def process_company_with_retry(  # NOSONAR
                     print(
                         f"🔄 Retrying {symbol} (attempt {attempt + 2}/{max_retries})..."
                     )
-                    await asyncio.sleep(random.uniform(2, 5))
+                    await asyncio.sleep(_stealth_rng.uniform(2, 5))
                     continue
                 return False
             if all_success:
                 return True
             elif attempt < max_retries - 1:
                 print(f"🔄 Retrying {symbol} (attempt {attempt + 2}/{max_retries})...")
-                await asyncio.sleep(random.uniform(2, 5))
+                await asyncio.sleep(_stealth_rng.uniform(2, 5))
         except PdfPipelineStopRequested:
             if page is not None:
                 try:
@@ -408,7 +411,7 @@ async def process_company_with_retry(  # NOSONAR
                 except Exception:
                     pass
             if attempt < max_retries - 1:
-                await asyncio.sleep(random.uniform(2, 5))
+                await asyncio.sleep(_stealth_rng.uniform(2, 5))
     return False
 
 
@@ -493,7 +496,7 @@ async def download_all_financial_statements() -> int:  # NOSONAR
                 if _pdf_stop_requested():
                     print("🛑 Stop requested. Skipping wait and ending now.")
                     break
-                delay = random.uniform(3, 7)
+                delay = _stealth_rng.uniform(3, 7)
                 print(f"⏳ Waiting {delay:.1f} seconds before next company...")
                 loop = asyncio.get_running_loop()
                 deadline = loop.time() + delay

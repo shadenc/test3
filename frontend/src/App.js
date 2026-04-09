@@ -38,6 +38,11 @@ import PropTypes from 'prop-types';
 // API URL configuration - supports both localhost and production
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5003';
 
+function buildEvidenceScreenshotUrl(companySymbol, requestedQuarter) {
+  const q = requestedQuarter || 'Q1_2025';
+  return `${API_URL}/api/evidence/${companySymbol}.png?quarter=${q}&t=${Date.now()}`;
+}
+
 const devLog =
   process.env.NODE_ENV === 'development'
     ? (...args) => {
@@ -90,6 +95,73 @@ function flowSignedTypographyParts(numValue) {
   let sign = '';
   if (numValue > 0) sign = '+';
   return { color, sign };
+}
+
+const GRID_EMPTY_VALUE_SENTINELS = ['', 'null', 'undefined'];
+
+function isDataGridCellEmpty(value) {
+  return !value || GRID_EMPTY_VALUE_SENTINELS.includes(value);
+}
+
+const EVIDENCE_EYE_ICON_SX = {
+  color: '#1e6641',
+  '&:hover': { bgcolor: '#e8f5ee' },
+  padding: '8px',
+  minWidth: '40px',
+  width: '40px',
+  height: '40px',
+};
+
+function renderSignedSarFlowGridCell(params) {
+  const value = params.value;
+  if (isDataGridCellEmpty(value)) {
+    return 'لايوجد';
+  }
+  const numValue = Number.parseFloat(value);
+  if (!Number.isNaN(numValue)) {
+    const { color, sign } = flowSignedTypographyParts(numValue);
+    return (
+      <Typography sx={{ color, fontWeight: 'bold' }}>
+        {sign}{numValue.toLocaleString('en-US')} SAR
+      </Typography>
+    );
+  }
+  return value;
+}
+
+function renderRetainedQuarterGridCell(
+  params,
+  quarterFilter,
+  fetchEvidenceData,
+  setEvidenceModalOpen,
+  evidenceQuarterKeyFn,
+) {
+  const value = params.value;
+  if (isDataGridCellEmpty(value)) {
+    return 'لايوجد';
+  }
+  const numValue = Number.parseFloat(value);
+  if (!Number.isNaN(numValue)) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography>{numValue.toLocaleString('en-US')}</Typography>
+        <Tooltip title="عرض دليل الاستخراج - انقر لرؤية المستند الأصلي" arrow placement="top">
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              fetchEvidenceData(params.row.symbol, evidenceQuarterKeyFn(quarterFilter));
+              setEvidenceModalOpen(true);
+            }}
+            sx={EVIDENCE_EYE_ICON_SX}
+          >
+            <VisibilityIcon sx={{ fontSize: '16px' }} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+    );
+  }
+  return value;
 }
 
 function mergeCorrectionIntoRows(prevRows, updated) {
@@ -287,41 +359,14 @@ function buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, s
       width: 250,
       align: "right",
       headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          return (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography>{numValue.toLocaleString('en-US')}</Typography>
-              <Tooltip title="عرض دليل الاستخراج - انقر لرؤية المستند الأصلي" arrow placement="top">
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    fetchEvidenceData(params.row.symbol, evidenceQuarterForPreviousColumn(quarterFilter));
-                    setEvidenceModalOpen(true);
-                  }}
-                  sx={{
-                    color: '#1e6641',
-                    '&:hover': { bgcolor: '#e8f5ee' },
-                    padding: '8px',
-                    minWidth: '40px',
-                    width: '40px',
-                    height: '40px'
-                  }}
-                >
-                  <VisibilityIcon sx={{ fontSize: '16px' }} />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          );
-        }
-        return value;
-      }
+      renderCell: (params) =>
+        renderRetainedQuarterGridCell(
+          params,
+          quarterFilter,
+          fetchEvidenceData,
+          setEvidenceModalOpen,
+          evidenceQuarterForPreviousColumn,
+        ),
     },
     {
       field: "current_quarter_value",
@@ -329,41 +374,14 @@ function buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, s
       width: 250,
       align: "right",
       headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          return (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography>{numValue.toLocaleString('en-US')}</Typography>
-              <Tooltip title="عرض دليل الاستخراج - انقر لرؤية المستند الأصلي" arrow placement="top">
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    fetchEvidenceData(params.row.symbol, evidenceQuarterForCurrentColumn(quarterFilter));
-                    setEvidenceModalOpen(true);
-                  }}
-                  sx={{
-                    color: '#1e6641',
-                    '&:hover': { bgcolor: '#e8f5ee' },
-                    padding: '8px',
-                    minWidth: '40px',
-                    width: '40px',
-                    height: '40px'
-                  }}
-                >
-                  <VisibilityIcon sx={{ fontSize: '16px' }} />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          );
-        }
-        return value;
-      }
+      renderCell: (params) =>
+        renderRetainedQuarterGridCell(
+          params,
+          quarterFilter,
+          fetchEvidenceData,
+          setEvidenceModalOpen,
+          evidenceQuarterForCurrentColumn,
+        ),
     },
     {
       field: "flow",
@@ -371,22 +389,7 @@ function buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, s
       width: 280,
       align: "right",
       headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          const { color, sign } = flowSignedTypographyParts(numValue);
-          return (
-            <Typography sx={{ color, fontWeight: 'bold' }}>
-              {sign}{numValue.toLocaleString('en-US')} SAR
-            </Typography>
-          );
-        }
-        return value;
-      }
+      renderCell: renderSignedSarFlowGridCell,
     },
     {
       field: "foreign_investor_flow",
@@ -394,22 +397,7 @@ function buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, s
       width: 250,
       align: "right",
       headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          const { color, sign } = flowSignedTypographyParts(numValue);
-          return (
-            <Typography sx={{ color, fontWeight: 'bold' }}>
-              {sign}{numValue.toLocaleString('en-US')} SAR
-            </Typography>
-          );
-        }
-        return value;
-      }
+      renderCell: renderSignedSarFlowGridCell,
     },
     {
       field: "net_profit",
@@ -436,22 +424,7 @@ function buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, s
       width: 220,
       align: "right",
       headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          const { color, sign } = flowSignedTypographyParts(numValue);
-          return (
-            <Typography sx={{ color, fontWeight: 'bold' }}>
-              {sign}{numValue.toLocaleString('en-US')} SAR
-            </Typography>
-          );
-        }
-        return value;
-      }
+      renderCell: renderSignedSarFlowGridCell,
     },
     {
       field: "distributed_profits_foreign_investor",
@@ -459,22 +432,7 @@ function buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, s
       width: 250,
       align: "right",
       headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          const { color, sign } = flowSignedTypographyParts(numValue);
-          return (
-            <Typography sx={{ color, fontWeight: 'bold' }}>
-              {sign}{numValue.toLocaleString('en-US')} SAR
-            </Typography>
-          );
-        }
-        return value;
-      }
+      renderCell: renderSignedSarFlowGridCell,
     }
   ];
 }
@@ -547,7 +505,10 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
                   maxHeight: '50vh'
                 }}>
                   <img 
-                    src={`${API_URL}/api/evidence/${evidenceData.company_symbol}.png?quarter=${evidenceData.evidence?.requested_quarter || 'Q1_2025'}&t=${Date.now()}`}
+                    src={buildEvidenceScreenshotUrl(
+                      evidenceData.company_symbol,
+                      evidenceData.evidence?.requested_quarter,
+                    )}
                     alt="Evidence Screenshot"
                     style={{ 
                       maxWidth: '100%', 
@@ -556,7 +517,13 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
                     }}
                     onLoad={() => {
                       devLog('Evidence image loaded with quarter:', evidenceData.evidence?.requested_quarter);
-                      devLog('Full image URL:', `${API_URL}/api/evidence/${evidenceData.company_symbol}.png?quarter=${evidenceData.evidence?.requested_quarter || 'Q1_2025'}&t=${Date.now()}`);
+                      devLog(
+                        'Full image URL:',
+                        buildEvidenceScreenshotUrl(
+                          evidenceData.company_symbol,
+                          evidenceData.evidence?.requested_quarter,
+                        ),
+                      );
                     }}
                   />
                 </Box>

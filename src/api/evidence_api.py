@@ -29,6 +29,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _debug_ignored(operation: str, exc: BaseException) -> None:
+    """Log non-fatal failures at DEBUG instead of silent except (Bandit B110 / Sonar)."""
+    logger.debug("%s (ignored): %s", operation, exc, exc_info=True)
+
+
 # --- Path fragments & messages (deduplicated; Sonar / maintainability) ---
 SCREENSHOTS_RELPATH = "output/screenshots"
 FLOW_CSV_RELPATH = "data/results/retained_earnings_flow.csv"
@@ -331,20 +337,20 @@ def create_app():
             if pp.exists():
                 with open(pp, "r", encoding="utf-8") as f:
                     pdfs_st = json.load(f).get("status")
-        except Exception:
-            pass
+        except Exception as e:
+            _debug_ignored("read PDFs progress for busy response", e)
         try:
             np_path = PROJECT_ROOT / RUNTIME_NET_PROGRESS_JSON
             if np_path.exists():
                 with open(np_path, "r", encoding="utf-8") as f:
                     net_st = json.load(f).get("status")
-        except Exception:
-            pass
+        except Exception as e:
+            _debug_ignored("read net profit progress for busy response", e)
         stop_pdf = False
         try:
             stop_pdf = (PROJECT_ROOT / RUNTIME_STOP_PDFS_FLAG).exists()
-        except Exception:
-            pass
+        except Exception as e:
+            _debug_ignored("check PDF stop flag for busy response", e)
 
         if net_st == "running":
             payload["hint"] = (
@@ -794,16 +800,16 @@ def create_app():
                 net_stop_stale = project_root / RUNTIME_STOP_NET_FLAG
                 if net_stop_stale.exists():
                     net_stop_stale.unlink()
-            except Exception:
-                pass
+            except Exception as e:
+                _debug_ignored("clear stale stop flags before PDF pipeline", e)
             # mark progress running
             try:
                 progress_path = project_root / RUNTIME_PDFS_PROGRESS_JSON
                 progress_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(progress_path, "w", encoding="utf-8") as f:
                     json.dump({"status": "running", "processed": 0}, f)
-            except Exception:
-                pass
+            except Exception as e:
+                _debug_ignored("write PDFs progress running", e)
             logger.info("[Pipeline] Starting hybrid downloader...")
             env = os.environ.copy()
             env.setdefault("STOP_FLAG_FILE", str(project_root / RUNTIME_STOP_PDFS_FLAG))
@@ -836,8 +842,8 @@ def create_app():
                 )
                 # Keep status "finalizing" until stop handler's _finalize_after_stop writes "completed"
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            _debug_ignored("check stop flag after PDF downloader", e)
         try:
             logger.info("[Pipeline] Starting retained earnings extractor...")
             subprocess.run(
@@ -877,15 +883,15 @@ def create_app():
             progress_path = project_root / RUNTIME_PDFS_PROGRESS_JSON
             with open(progress_path, "w", encoding="utf-8") as f:
                 json.dump({"status": "completed"}, f)
-        except Exception:
-            pass
+        except Exception as e:
+            _debug_ignored("write PDFs progress completed", e)
         # Ensure stop flag is cleared for next runs
         try:
             stop_flag_file = project_root / RUNTIME_STOP_PDFS_FLAG
             if stop_flag_file.exists():
                 stop_flag_file.unlink()
-        except Exception:
-            pass
+        except Exception as e:
+            _debug_ignored("unlink PDF stop flag after pipeline", e)
         logger.info(
             "[Pipeline] ✅ Pipeline completed (download → extract → calculate → screenshots)"
         )
@@ -949,16 +955,16 @@ def create_app():
                         net_stop_flag = project_root / RUNTIME_STOP_NET_FLAG
                         if net_stop_flag.exists():
                             net_stop_flag.unlink()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _debug_ignored("clear net profit stop flag before scrape", e)
                     # Initialize progress file as running
                     try:
                         net_progress = project_root / RUNTIME_NET_PROGRESS_JSON
                         net_progress.parent.mkdir(parents=True, exist_ok=True)
                         with open(net_progress, "w", encoding="utf-8") as f:
                             json.dump({"status": "running", "processed": 0}, f)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _debug_ignored("write net profit progress running", e)
                     env = os.environ.copy()
                     env.setdefault(
                         "STOP_FLAG_FILE", str(project_root / RUNTIME_STOP_NET_FLAG)
@@ -983,8 +989,8 @@ def create_app():
                                     blocked = (
                                         json.load(fp).get("status") == "blocked_by_waf"
                                     )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            _debug_ignored("read net profit progress for WAF check", e)
                         if blocked:
                             logger.warning(
                                 "[NetProfit] Scraper exited after Saudi Exchange Access Denied (Akamai); "
@@ -1021,8 +1027,8 @@ def create_app():
                         net_stop_flag = project_root / RUNTIME_STOP_NET_FLAG
                         if net_stop_flag.exists():
                             net_stop_flag.unlink()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _debug_ignored("clear net profit stop flag after scrape", e)
 
             threading.Thread(target=_run_net_profit_task, daemon=True).start()
             return jsonify(
@@ -1042,8 +1048,8 @@ def create_app():
             try:
                 with open(progress_file, "r", encoding="utf-8") as f:
                     return jsonify(json.load(f))
-            except Exception:
-                pass
+            except Exception as e:
+                _debug_ignored("read PDFs status JSON", e)
         return jsonify({"status": "idle"})
 
     @app.route("/api/net_profit/status", methods=["GET"])
@@ -1053,8 +1059,8 @@ def create_app():
             try:
                 with open(progress_file, "r", encoding="utf-8") as f:
                     return jsonify(json.load(f))
-            except Exception:
-                pass
+            except Exception as e:
+                _debug_ignored("read net profit status JSON", e)
         return jsonify({"status": "idle"})
 
     @app.route("/api/pdfs/stop", methods=["POST"])
@@ -1069,8 +1075,8 @@ def create_app():
                 progress_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(progress_path, "w", encoding="utf-8") as f:
                     json.dump({"status": "finalizing"}, f)
-            except Exception:
-                pass
+            except Exception as e:
+                _debug_ignored("write PDFs progress finalizing on stop", e)
 
             # Immediately kick off finalize: extractor -> calc -> screenshots in separate thread
             def _finalize_after_stop():
@@ -1128,8 +1134,8 @@ def create_app():
                         progress_path = PROJECT_ROOT / RUNTIME_PDFS_PROGRESS_JSON
                         with open(progress_path, "w", encoding="utf-8") as f:
                             json.dump({"status": "completed"}, f)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _debug_ignored("write PDFs progress completed after stop", e)
                 except Exception as e:
                     logger.warning(f"[Pipeline] Finalize after stop failed: {e}")
 
@@ -1149,8 +1155,8 @@ def create_app():
                 progress_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(progress_path, "w", encoding="utf-8") as f:
                     json.dump({"status": "finalizing"}, f)
-            except Exception:
-                pass
+            except Exception as e:
+                _debug_ignored("write net profit progress finalizing on stop", e)
             return jsonify({"status": "accepted"})
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
@@ -1181,7 +1187,7 @@ def create_app():
                 # Apply multiplier based on detected unit (default 1)
                 try:
                     base_numeric = float(str(correct_value).replace(",", ""))
-                except Exception:
+                except (ValueError, TypeError):
                     base_numeric = 0.0
                 multiplier = entry.get("applied_multiplier", 1) or 1
                 entry["numeric_value"] = base_numeric * multiplier
@@ -1194,7 +1200,7 @@ def create_app():
             # If not found, add a new entry
             try:
                 base_numeric = float(str(correct_value).replace(",", ""))
-            except Exception:
+            except (ValueError, TypeError):
                 base_numeric = 0.0
             results.append(
                 {
@@ -1229,8 +1235,8 @@ def create_app():
             )
             with open(corrections_log, "w", encoding="utf-8") as f:
                 json.dump(log, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass  # Don't block on logging
+        except Exception as e:
+            _debug_ignored("append corrections log (non-blocking)", e)
 
         # Trigger recalculation
         try:

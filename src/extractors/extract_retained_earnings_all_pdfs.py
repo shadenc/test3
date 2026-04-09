@@ -402,59 +402,70 @@ class RetainedEarningsExtractor:
             logger.error(f"Camelot error: {e}")
             return None
 
+    def _regex_full_text_from_pdf(self, pdf_path: str) -> Optional[str]:
+        try:
+            doc = fitz.open(pdf_path)
+            try:
+                return "".join(page.get_text() for page in doc)
+            finally:
+                doc.close()
+        except Exception:
+            return None
+
+    def _regex_match_from_number(
+        self, pdf_path: str, number: str, numeric_value: float
+    ) -> Optional[Dict]:
+        if numeric_value < 10000 or numeric_value in self.target_years:
+            return None
+        page_num = self._find_page_for_value(pdf_path, number)
+        units = self._detect_units_for_pdf(
+            pdf_path, page_num=page_num, search_value=number
+        )
+        scaled_value = numeric_value * units["applied_multiplier"]
+        return {
+            "success": True,
+            "value": number,
+            "numeric_value": scaled_value,
+            "method": "regex",
+            "year": self.most_recent_year,
+            "page": page_num if page_num else 1,
+            "unit_detected": units["unit_detected"],
+            "applied_multiplier": units["applied_multiplier"],
+        }
+
+    def _regex_scan_nearby_lines(
+        self, lines: List[str], retained_line_index: int, pdf_path: str
+    ) -> Optional[Dict]:
+        end = min(retained_line_index + 10, len(lines))
+        for j in range(retained_line_index + 1, end):
+            for number in re.findall(r"([\d,]+)", lines[j]):
+                clean_value = number.replace(",", "")
+                if not clean_value.isdigit():
+                    continue
+                numeric_value = float(clean_value)
+                match = self._regex_match_from_number(pdf_path, number, numeric_value)
+                if match:
+                    return match
+        return None
+
     def extract_with_regex(self, pdf_path: str) -> Optional[Dict]:
         """Simple regex extraction as fallback"""
         try:
-            doc = fitz.open(pdf_path)
-            text = ""
-            for page in doc:
-                text += page.get_text()
-            doc.close()
+            text = self._regex_full_text_from_pdf(pdf_path)
+            if not text:
+                return None
 
-            # Detect years first
             self.detect_years(text)
             if not self.target_years:
                 return None
 
-            # Look for retained earnings line
             lines = text.split("\n")
             for i, line in enumerate(lines):
-                if RETAINED_EARNINGS_LABEL in line.lower():
-                    # Look for numbers in nearby lines
-                    for j in range(i + 1, min(i + 10, len(lines))):
-                        next_line = lines[j]
-                        numbers = re.findall(r"([\d,]+)", next_line)
-                        for number in numbers:
-                            clean_value = number.replace(",", "")
-                            if clean_value.isdigit():
-                                numeric_value = float(clean_value)
-                                # Filter out years and small numbers
-                                if (
-                                    numeric_value >= 10000
-                                    and numeric_value not in self.target_years
-                                ):
-                                    # Try to locate actual page for the number and detect units
-                                    page_num = self._find_page_for_value(
-                                        pdf_path, number
-                                    )
-                                    units = self._detect_units_for_pdf(
-                                        pdf_path, page_num=page_num, search_value=number
-                                    )
-                                    scaled_value = (
-                                        numeric_value * units["applied_multiplier"]
-                                    )
-                                    return {
-                                        "success": True,
-                                        "value": number,
-                                        "numeric_value": scaled_value,
-                                        "method": "regex",
-                                        "year": self.most_recent_year,
-                                        "page": page_num if page_num else 1,
-                                        "unit_detected": units["unit_detected"],
-                                        "applied_multiplier": units[
-                                            "applied_multiplier"
-                                        ],
-                                    }
+                if RETAINED_EARNINGS_LABEL not in line.lower():
+                    continue
+                found = self._regex_scan_nearby_lines(lines, i, pdf_path)
+                if found:
+                    return found
             return None
         except Exception as e:
             logger.error(f"Regex error: {e}")

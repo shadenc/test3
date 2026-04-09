@@ -343,20 +343,23 @@ def main():  # NOSONAR
         flow_df["company_symbol"] = flow_df["company_symbol"].astype(str)
         ownership_df["symbol"] = ownership_df["symbol"].astype(str)
 
+        ownership_for_merge = ownership_df[
+            [
+                "symbol",
+                "company_name",
+                "foreign_ownership",
+                "max_allowed",
+                "investor_limit",
+            ]
+        ].drop_duplicates(subset=["symbol"], keep="first")
+
         merged = pd.merge(
             flow_df,
-            ownership_df[
-                [
-                    "symbol",
-                    "company_name",
-                    "foreign_ownership",
-                    "max_allowed",
-                    "investor_limit",
-                ]
-            ],
+            ownership_for_merge,
             left_on="company_symbol",
             right_on="symbol",
             how="left",
+            validate="one_to_many",
         )
 
         merged["reinvested_earnings_flow"] = merged.apply(

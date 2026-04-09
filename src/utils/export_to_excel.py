@@ -49,61 +49,58 @@ class ExcelExporter:
         except (ValueError, TypeError):
             return str(value)
 
+    def _write_dashboard_headers(self, ws, headers):
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+            cell.alignment = self.right_alignment
+            cell.border = self.border
+
+    def _write_dashboard_data_rows(self, ws, data, headers):
+        for row_idx, (_, row) in enumerate(data.iterrows(), 2):
+            row_data = [
+                self._format_dashboard_cell_value(row.get(header, ""))
+                for header in headers
+            ]
+            for col, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_idx, column=col, value=value)
+                cell.font = self.data_font
+                cell.border = self.border
+                cell.alignment = self.right_alignment
+
+    @staticmethod
+    def _autosize_dashboard_columns(ws):
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if cell.value and len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except (TypeError, ValueError, AttributeError):
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+
     def export_dashboard_table(self, data):
         """
         Export only the dashboard table data in a simple format
         """
         try:
-            # Create workbook
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = "Financial Data"  # Shorter title to avoid Excel issues
+            ws.title = "Financial Data"
 
-            # Get headers dynamically from the data columns and reverse for RTL layout
-            headers = list(data.columns)[::-1]  # Reverse the order for RTL layout
+            headers = list(data.columns)[::-1]
+            self._write_dashboard_headers(ws, headers)
+            self._write_dashboard_data_rows(ws, data, headers)
+            self._autosize_dashboard_columns(ws)
 
-            # Add headers
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=col, value=header)
-                cell.font = self.header_font
-                cell.fill = self.header_fill
-                cell.alignment = self.right_alignment  # Right-align headers for RTL
-                cell.border = self.border
-
-            # Add data rows
-            for row_idx, (_, row) in enumerate(data.iterrows(), 2):
-                row_data = []
-                for header in headers:
-                    row_data.append(
-                        self._format_dashboard_cell_value(row.get(header, ""))
-                    )
-
-                # Add row data with reversed order for RTL layout
-                for col, value in enumerate(row_data, 1):
-                    cell = ws.cell(row=row_idx, column=col, value=value)
-                    cell.font = self.data_font
-                    cell.border = self.border
-                    cell.alignment = self.right_alignment
-
-            # Auto-adjust column widths
-            for column in ws.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if cell.value and len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except (TypeError, ValueError, AttributeError):
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                ws.column_dimensions[column_letter].width = adjusted_width
-
-            # Generate filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"financial_analysis_{timestamp}.xlsx"
             output_path = self.output_dir / filename
 
-            # Save workbook with error handling
             try:
                 wb.save(str(output_path))
                 logger.info(f"Dashboard table exported: {output_path}")

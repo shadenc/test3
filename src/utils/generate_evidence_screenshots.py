@@ -6,7 +6,6 @@ Creates highlighted screenshots showing where values were found in PDFs
 
 import fitz
 import json
-import os
 from pathlib import Path
 import logging
 from typing import Optional, Tuple
@@ -16,6 +15,21 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def _safe_pdfs_path(pdf_filename: str) -> Optional[Path]:
+    """Resolve PDF under project data/pdfs using basename only (blocks path traversal)."""
+    root = Path(__file__).resolve().parent.parent.parent
+    base = (root / "data" / "pdfs").resolve()
+    name = Path(str(pdf_filename)).name
+    if not name:
+        return None
+    resolved = (base / name).resolve()
+    try:
+        resolved.relative_to(base)
+    except ValueError:
+        return None
+    return resolved
 
 
 class EvidenceScreenshotGenerator:
@@ -121,7 +135,11 @@ class EvidenceScreenshotGenerator:
             logger.info(f"Generated evidence screenshot: {output_path}")
             return str(output_path)
         except Exception as e:
-            logger.error(f"Error generating screenshot for {pdf_path}: {e}")
+            logger.error(
+                "Error generating screenshot for PDF %s: %s",
+                Path(pdf_path).name,
+                e,
+            )
             return None
 
     def generate_page_screenshot(
@@ -143,7 +161,11 @@ class EvidenceScreenshotGenerator:
             logger.info(f"Generated page screenshot: {output_path}")
             return str(output_path)
         except Exception as e:
-            logger.error(f"Error generating page screenshot for {pdf_path}: {e}")
+            logger.error(
+                "Error generating page screenshot for PDF %s: %s",
+                Path(pdf_path).name,
+                e,
+            )
             return None
 
     def generate_all_evidence_screenshots(
@@ -176,16 +198,22 @@ class EvidenceScreenshotGenerator:
                 pdf_filename = result["pdf_filename"]
                 value = result["value"]
 
-                pdf_path = f"data/pdfs/{pdf_filename}"
-
-                if not os.path.exists(pdf_path):
+                pdf_resolved = _safe_pdfs_path(pdf_filename)
+                if pdf_resolved is None:
                     logger.warning(
-                        "PDF not found: %s", os.path.basename(pdf_filename)
+                        "Evidence skipped: invalid PDF reference (company_symbol=%s)",
+                        company_symbol,
+                    )
+                    continue
+                if not pdf_resolved.is_file():
+                    logger.warning(
+                        "Evidence skipped: PDF missing on disk (company_symbol=%s)",
+                        company_symbol,
                     )
                     continue
 
                 screenshot_path = self.generate_highlight_screenshot(
-                    pdf_path, value
+                    str(pdf_resolved), value
                 )
 
                 if screenshot_path:

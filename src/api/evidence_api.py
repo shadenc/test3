@@ -66,12 +66,12 @@ _REF_ANNUAL_2024 = "Annual 2024"
 def _safe_log_symbol(value: object) -> str:
     """Sanitize user-supplied symbol for logs (Sonar pythonsecurity:S5145)."""
     raw = str(value).strip()[:16]
-    return raw if re.fullmatch(r"[0-9A-Za-z_-]+", raw) else "<invalid_symbol>"
+    return raw if re.fullmatch(r"[\w-]+", raw, flags=re.ASCII) else "<invalid_symbol>"
 
 
 def _safe_log_quarter_param(value: object) -> str:
     raw = str(value).strip()[:48]
-    return raw if re.fullmatch(r"[0-9A-Za-z_]+", raw) else "<invalid_quarter>"
+    return raw if re.fullmatch(r"\w+", raw, flags=re.ASCII) else "<invalid_quarter>"
 
 
 def run_quarterly_refresh_and_archive(project_root: Path) -> None:

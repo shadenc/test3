@@ -166,7 +166,7 @@ class RetainedEarningsExtractor:
         current_year = datetime.now().year
 
         # Look for 4-digit years (2020-2030 range)
-        year_pattern = r"\b(20[2-3][0-9])\b"
+        year_pattern = r"\b(20[2-3]\d)\b"
         years_found = re.findall(year_pattern, text)
 
         # Convert to integers and filter realistic years

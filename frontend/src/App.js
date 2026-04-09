@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { DataGrid } from "@mui/x-data-grid";
 import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
@@ -45,6 +45,72 @@ const devLog =
       }
     : () => {};
 
+const CONTENT_DISPOSITION_FILENAME_RE = /filename="(.+)"/;
+
+function parseFilenameFromContentDisposition(contentDisposition) {
+  if (!contentDisposition) return 'dashboard_table.xlsx';
+  const m = CONTENT_DISPOSITION_FILENAME_RE.exec(contentDisposition);
+  return m ? m[1] : 'dashboard_table.xlsx';
+}
+
+/** Trim CSV row keys/cells without nested forEach-in-map (Sonar nesting). */
+function trimCsvRowCells(row) {
+  const cleanedRow = {};
+  for (const key of Object.keys(row)) {
+    const cleanKey = key.trim();
+    cleanedRow[cleanKey] = row[key] ? String(row[key]).trim() : '';
+  }
+  return cleanedRow;
+}
+
+function evidenceQuarterForPreviousColumn(quarterFilter) {
+  if (quarterFilter === 'Q1') return 'Annual_2024';
+  if (quarterFilter === 'Q2') return 'Q1_2025';
+  if (quarterFilter === 'Q3') return 'Q2_2025';
+  return 'Q3_2025';
+}
+
+function evidenceQuarterForCurrentColumn(quarterFilter) {
+  if (quarterFilter === 'Q1') return 'Q1_2025';
+  if (quarterFilter === 'Q2') return 'Q2_2025';
+  if (quarterFilter === 'Q3') return 'Q3_2025';
+  return 'Q4_2025';
+}
+
+function netProfitQuarterKeyFromFilter(quarterFilter) {
+  if (quarterFilter === 'Q1') return 'Q1 2025';
+  if (quarterFilter === 'Q2') return 'Q2 2025';
+  if (quarterFilter === 'Q3') return 'Q3 2025';
+  return 'Q4 2025';
+}
+
+function flowSignedTypographyParts(numValue) {
+  const isPositive = numValue >= 0;
+  const color = isPositive ? '#2e7d32' : '#d32f2f';
+  let sign = '';
+  if (numValue > 0) sign = '+';
+  return { color, sign };
+}
+
+function mergeCorrectionIntoRows(prevRows, updated) {
+  return prevRows.map((row) => {
+    if (!row.symbol || !updated.company_symbol) return row;
+    if (row.symbol.toString() !== updated.company_symbol.toString()) return row;
+    return {
+      ...row,
+      retained_earnings: updated.retained_earnings || updated.value || '',
+      reinvested_earnings: updated.reinvested_earnings || '',
+      year: updated.year || '',
+      error: updated.error || '',
+    };
+  });
+}
+
+function combineDashboardRows(foreignOwnershipData, quarterlyFlowData, onEvidenceClick) {
+  const flowMap = buildFlowMapFromQuarterlyRows(quarterlyFlowData);
+  return mergeOwnershipWithQuarterlyFlow(foreignOwnershipData, flowMap, onEvidenceClick);
+}
+
 /** DataGrid column headers (avoid nested ternaries; Sonar S3358). */
 function previousQuarterHeaderLabel(qf) {
   switch (qf) {
@@ -86,14 +152,7 @@ function parseQuarterlyFlowCsvText(csvText) {
         if (result.data && result.data.length > 0) {
           const cleanedData = result.data
             .filter((row) => row.company_symbol && row.company_symbol.trim() !== '')
-            .map((row) => {
-              const cleanedRow = {};
-              Object.keys(row).forEach((key) => {
-                const cleanKey = key.trim();
-                cleanedRow[cleanKey] = row[key] ? row[key].trim() : '';
-              });
-              return cleanedRow;
-            });
+            .map(trimCsvRowCells);
           devLog("Cleaned CSV data:", cleanedData);
           resolve(cleanedData);
         } else {
@@ -176,6 +235,244 @@ function mergeOwnershipWithQuarterlyFlow(foreignOwnershipData, flowMap, onEviden
     });
   });
   return mergedData;
+}
+
+function EvidenceScalingBlurb({ evidenceData }) {
+  const rawStr = String(evidenceData.value || '').replaceAll(/[^0-9,.-]/g, '');
+  const raw = Number(rawStr.replaceAll(',', ''));
+  const mult = Number(evidenceData.applied_multiplier || 1);
+  const unit = String(evidenceData.unit_detected || 'SAR');
+  let unitLabel = 'غير محدد';
+  if (unit === 'million_SAR') unitLabel = 'بالملايين';
+  else if (unit === 'thousand_SAR') unitLabel = 'بالآلاف';
+  else if (unit === 'SAR') unitLabel = 'بالريال السعودي';
+  if (!raw || mult === 1) {
+    const directSar =
+      unit === 'SAR' || mult === 1
+        ? 'القيم بالريال السعودي مباشرة (بدون تحويل).'
+        : `الوحدة: ${unitLabel}`;
+    return (
+      <Typography variant="body2" sx={{ color: '#4d4d4d' }}>
+        {directSar}
+      </Typography>
+    );
+  }
+  const result = raw * mult;
+  return (
+    <>
+      <Typography variant="body2" sx={{ color: '#4d4d4d' }}>
+        تم اكتشاف أن القيم {unitLabel}. تم تحويل القيمة كما يلي:
+      </Typography>
+      <Typography variant="body2" sx={{ mt: 0.5, direction: 'ltr', fontFamily: 'monospace', color: '#1e6641' }}>
+        {raw.toLocaleString('en-US')} × {mult.toLocaleString('en-US')} = {result.toLocaleString('en-US')}
+      </Typography>
+    </>
+  );
+}
+
+function buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, setEvidenceModalOpen) {
+  return [
+    { field: "symbol", headerName: "رمز الشركة", width: 120, align: "right", headerAlign: "right" },
+    { field: "company_name", headerName: "الشركة", width: 200, align: "right", headerAlign: "right" },
+    { field: "foreign_ownership", headerName: "ملكية جميع المستثمرين الأجانب", width: 220, align: "right", headerAlign: "right" },
+    { field: "max_allowed", headerName: "الملكية الحالية", width: 150, align: "right", headerAlign: "right" },
+    { field: "investor_limit", headerName: "ملكية المستثمر الاستراتيجي الأجنبي", width: 220, align: "right", headerAlign: "right" },
+    {
+      field: "previous_quarter_value",
+      headerName: `الأرباح المبقاة للربع السابق (${previousQuarterHeaderLabel(quarterFilter)})`,
+      width: 250,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (params) => {
+        const value = params.value;
+        if (!value || value === "" || value === "null" || value === "undefined") {
+          return "لايوجد";
+        }
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography>{numValue.toLocaleString('en-US')}</Typography>
+              <Tooltip title="عرض دليل الاستخراج - انقر لرؤية المستند الأصلي" arrow placement="top">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fetchEvidenceData(params.row.symbol, evidenceQuarterForPreviousColumn(quarterFilter));
+                    setEvidenceModalOpen(true);
+                  }}
+                  sx={{
+                    color: '#1e6641',
+                    '&:hover': { bgcolor: '#e8f5ee' },
+                    padding: '8px',
+                    minWidth: '40px',
+                    width: '40px',
+                    height: '40px'
+                  }}
+                >
+                  <VisibilityIcon sx={{ fontSize: '16px' }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          );
+        }
+        return value;
+      }
+    },
+    {
+      field: "current_quarter_value",
+      headerName: `الأرباح المبقاة للربع الحالي (${currentQuarterHeaderLabel(quarterFilter)})`,
+      width: 250,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (params) => {
+        const value = params.value;
+        if (!value || value === "" || value === "null" || value === "undefined") {
+          return "لايوجد";
+        }
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography>{numValue.toLocaleString('en-US')}</Typography>
+              <Tooltip title="عرض دليل الاستخراج - انقر لرؤية المستند الأصلي" arrow placement="top">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fetchEvidenceData(params.row.symbol, evidenceQuarterForCurrentColumn(quarterFilter));
+                    setEvidenceModalOpen(true);
+                  }}
+                  sx={{
+                    color: '#1e6641',
+                    '&:hover': { bgcolor: '#e8f5ee' },
+                    padding: '8px',
+                    minWidth: '40px',
+                    width: '40px',
+                    height: '40px'
+                  }}
+                >
+                  <VisibilityIcon sx={{ fontSize: '16px' }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          );
+        }
+        return value;
+      }
+    },
+    {
+      field: "flow",
+      headerName: "حجم الزيادة أو النقص في الأرباح المبقاة (التدفق)",
+      width: 280,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (params) => {
+        const value = params.value;
+        if (!value || value === "" || value === "null" || value === "undefined") {
+          return "لايوجد";
+        }
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
+          const { color, sign } = flowSignedTypographyParts(numValue);
+          return (
+            <Typography sx={{ color, fontWeight: 'bold' }}>
+              {sign}{numValue.toLocaleString('en-US')} SAR
+            </Typography>
+          );
+        }
+        return value;
+      }
+    },
+    {
+      field: "foreign_investor_flow",
+      headerName: "تدفق الأرباح المبقاة للمستثمر الأجنبي",
+      width: 250,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (params) => {
+        const value = params.value;
+        if (!value || value === "" || value === "null" || value === "undefined") {
+          return "لايوجد";
+        }
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
+          const { color, sign } = flowSignedTypographyParts(numValue);
+          return (
+            <Typography sx={{ color, fontWeight: 'bold' }}>
+              {sign}{numValue.toLocaleString('en-US')} SAR
+            </Typography>
+          );
+        }
+        return value;
+      }
+    },
+    {
+      field: "net_profit",
+      headerName: "صافي الربح",
+      width: 150,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (params) => {
+        const companySymbol = params.row.company_symbol;
+        const companyNetProfit = netProfitData[companySymbol];
+        if (companyNetProfit?.quarterly_net_profit) {
+          const quarterKey = netProfitQuarterKeyFromFilter(quarterFilter);
+          const npValue = companyNetProfit.quarterly_net_profit[quarterKey];
+          if (npValue !== undefined && npValue !== null) {
+            return npValue.toLocaleString('en-US');
+          }
+        }
+        return "لايوجد";
+      }
+    },
+    {
+      field: "net_profit_foreign_investor",
+      headerName: "صافي الربح للمستثمر الأجنبي",
+      width: 220,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (params) => {
+        const value = params.value;
+        if (!value || value === "" || value === "null" || value === "undefined") {
+          return "لايوجد";
+        }
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
+          const { color, sign } = flowSignedTypographyParts(numValue);
+          return (
+            <Typography sx={{ color, fontWeight: 'bold' }}>
+              {sign}{numValue.toLocaleString('en-US')} SAR
+            </Typography>
+          );
+        }
+        return value;
+      }
+    },
+    {
+      field: "distributed_profits_foreign_investor",
+      headerName: "الأرباح الموزعة للمستثمر الأجنبي",
+      width: 250,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (params) => {
+        const value = params.value;
+        if (!value || value === "" || value === "null" || value === "undefined") {
+          return "لايوجد";
+        }
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
+          const { color, sign } = flowSignedTypographyParts(numValue);
+          return (
+            <Typography sx={{ color, fontWeight: 'bold' }}>
+              {sign}{numValue.toLocaleString('en-US')} SAR
+            </Typography>
+          );
+        }
+        return value;
+      }
+    }
+  ];
 }
 
 // Evidence Modal Component
@@ -277,38 +574,7 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
 
                 {/* Scaling explanation */}
                 <Box sx={{ mt: 1.5, p: 1.5, bgcolor: '#f7f9f8', border: '1px solid #e0e6e4', borderRadius: 1.5 }}>
-                  {(() => {
-                    const rawStr = String(evidenceData.value || '').replace(/[^0-9,.-]/g, '');
-                    const raw = Number(rawStr.replace(/,/g, ''));
-                    const mult = Number(evidenceData.applied_multiplier || 1);
-                    const unit = String(evidenceData.unit_detected || 'SAR');
-                    let unitLabel = 'غير محدد';
-                    if (unit === 'million_SAR') unitLabel = 'بالملايين';
-                    else if (unit === 'thousand_SAR') unitLabel = 'بالآلاف';
-                    else if (unit === 'SAR') unitLabel = 'بالريال السعودي';
-                    if (!raw || mult === 1) {
-                      const directSar =
-                        unit === 'SAR' || mult === 1
-                          ? 'القيم بالريال السعودي مباشرة (بدون تحويل).'
-                          : `الوحدة: ${unitLabel}`;
-                      return (
-                        <Typography variant="body2" sx={{ color: '#4d4d4d' }}>
-                          {directSar}
-                        </Typography>
-                      );
-                    }
-                    const result = raw * mult;
-                    return (
-                      <>
-                        <Typography variant="body2" sx={{ color: '#4d4d4d' }}>
-                          تم اكتشاف أن القيم {unitLabel}. تم تحويل القيمة كما يلي:
-                        </Typography>
-                        <Typography variant="body2" sx={{ mt: 0.5, direction: 'ltr', fontFamily: 'monospace', color: '#1e6641' }}>
-                          {raw.toLocaleString('en-US')} × {mult.toLocaleString('en-US')} = {result.toLocaleString('en-US')}
-                        </Typography>
-                      </>
-                    );
-                  })()}
+                  <EvidenceScalingBlurb evidenceData={evidenceData} />
                   </Box>
               </Box>
             )}
@@ -461,10 +727,6 @@ function App() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [fileToDelete, setFileToDelete] = useState(null);
   const [netProfitData, setNetProfitData] = useState({});
-  // Commented out since we're using inline editing
-  // const [editModalOpen, setEditModalOpen] = useState(false);
-  // const [editData, setEditData] = useState(null);
-  // const [editLoading, setEditLoading] = useState(false);
   const [customExportDate, setCustomExportDate] = useState("");
   const [customFileName, setCustomFileName] = useState("");
   const [customExportExpanded, setCustomExportExpanded] = useState(false);
@@ -539,6 +801,79 @@ function App() {
     setNetPollId(id);
   };
 
+  const startPdfPipelineOnly = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/run_pdfs_pipeline`, { method: 'POST' });
+      const data = await res.json();
+      if (res.status === 202) {
+        setPdfJobStatus({ status: 'running' });
+        setPdfProgressOpen(true);
+        startPollPdf();
+      } else if (res.status === 409) {
+        alert('❌ ' + (data.hint_ar || data.hint || data.message || 'يوجد مهمة متصفح أخرى قيد التشغيل.'));
+      } else {
+        alert('❌ لم يتم بدء العملية: ' + (data.message || ''));
+      }
+    } catch (e) {
+      alert('❌ خطأ في الاتصال بالخادم: ' + e.message);
+    }
+  };
+
+  const startNetScrapeOnly = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/run_net_profit_scrape`, { method: 'POST' });
+      const data = await res.json();
+      if (res.status === 202) {
+        setNetJobStatus({ status: 'running' });
+        setNetProgressOpen(true);
+        startPollNet();
+      } else if (res.status === 409) {
+        alert('❌ ' + (data.hint_ar || data.hint || data.message || 'يوجد مهمة متصفح أخرى قيد التشغيل.'));
+      } else {
+        alert('❌ لم يتم بدء العملية: ' + (data.message || ''));
+      }
+    } catch (e) {
+      alert('❌ خطأ في الاتصال بالخادم: ' + e.message);
+    }
+  };
+
+  const startBothViaPdfPipeline = async () => {
+    try {
+      const resPdf = await fetch(`${API_URL}/api/run_pdfs_pipeline`, { method: 'POST' });
+      const dataPdf = await resPdf.json();
+      if (resPdf.status === 202) {
+        setPdfJobStatus({ status: 'running' });
+        setBothProgressOpen(true);
+        startPollPdf(() => {
+          setBothProgressOpen(false);
+          setBothIsStopping(false);
+        });
+      } else if (resPdf.status === 409) {
+        alert('❌ ' + (dataPdf.hint_ar || dataPdf.hint || dataPdf.message || 'يوجد مهمة متصفح أخرى قيد التشغيل.'));
+      } else {
+        alert('❌ لم يتم بدء عملية تحديث PDF: ' + (dataPdf.message || ''));
+      }
+    } catch (e) {
+      alert('❌ خطأ في الاتصال بالخادم: ' + e.message);
+    }
+  };
+
+  const handleUpdateModalConfirm = async () => {
+    setUpdateModalOpen(false);
+    if (selectPdf && !selectNet) {
+      await startPdfPipelineOnly();
+    } else if (!selectPdf && selectNet) {
+      await startNetScrapeOnly();
+    } else {
+      try {
+        await startBothViaPdfPipeline();
+      } finally {
+        setSelectPdf(false);
+        setSelectNet(false);
+      }
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (pdfPollId) clearInterval(pdfPollId);
@@ -546,8 +881,7 @@ function App() {
     };
   }, [pdfPollId, netPollId]);
 
-  // Function to fetch evidence data
-  const fetchEvidenceData = async (companySymbol, quarter) => {
+  const fetchEvidenceData = useCallback(async (companySymbol, quarter) => {
     setEvidenceData(null);
     setEvidenceLoading(true);
     setEvidenceError(null);
@@ -565,19 +899,7 @@ function App() {
     } finally {
       setEvidenceLoading(false);
     }
-  };
-
-  // Function to handle edit value button click - Commented out since we're using inline editing
-  /* const handleEditValue = (companySymbol, fieldType, currentValue, companyName) => {
-    setEditData({
-      companySymbol,
-      fieldType,
-      currentValue,
-      companyName,
-      newValue: currentValue.toString()
-    });
-    setEditModalOpen(true);
-  }; */
+  }, []);
 
   // Function to fetch net profit data
   const fetchNetProfitData = async () => {
@@ -594,13 +916,12 @@ function App() {
     }
   };
 
-  // Function to handle evidence button click
-  const handleEvidenceClick = (row) => {
+  const handleEvidenceClick = useCallback((row) => {
     if (row.current_quarter_value && row.current_quarter_value !== "لايوجد") {
       setEvidenceModalOpen(true);
       fetchEvidenceData(row.symbol, row.quarter);
     }
-  };
+  }, [fetchEvidenceData]);
 
   // Function to handle reset (إعادة تعيين)
   const handleReset = async () => {
@@ -634,13 +955,7 @@ function App() {
       
       // Get the filename from the response headers
       const contentDisposition = response.headers.get('content-disposition');
-      let filename = 'dashboard_table.xlsx';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
+      const filename = parseFilenameFromContentDisposition(contentDisposition);
       
       // Create blob and download
       const blob = await response.blob();
@@ -701,18 +1016,8 @@ function App() {
       .then(([foreignOwnershipData, quarterlyFlowData]) => {
         devLog("Foreign ownership data count:", foreignOwnershipData.length);
         devLog("Quarterly flow data count:", quarterlyFlowData.length);
-
-        const flowMap = buildFlowMapFromQuarterlyRows(quarterlyFlowData);
-        devLog("Flow map keys:", Object.keys(flowMap));
-        devLog("Sample flow data for 2222:", flowMap["2222"]);
-
-        const mergedData = mergeOwnershipWithQuarterlyFlow(
-          foreignOwnershipData,
-          flowMap,
-          handleEvidenceClick,
-        );
+        const mergedData = combineDashboardRows(foreignOwnershipData, quarterlyFlowData, handleEvidenceClick);
         devLog("Final merged data sample:", mergedData.slice(0, 3));
-
         setRows(mergedData);
         setLoading(false);
       })
@@ -791,245 +1096,10 @@ function App() {
     }
   };
 
-  // Define getColumns function inside the component to access state variables
-  const getColumns = (quarterFilter) => [
-    { field: "symbol", headerName: "رمز الشركة", width: 120, align: "right", headerAlign: "right" },
-    { field: "company_name", headerName: "الشركة", width: 200, align: "right", headerAlign: "right" },
-    { field: "foreign_ownership", headerName: "ملكية جميع المستثمرين الأجانب", width: 220, align: "right", headerAlign: "right" },
-    { field: "max_allowed", headerName: "الملكية الحالية", width: 150, align: "right", headerAlign: "right" },
-    { field: "investor_limit", headerName: "ملكية المستثمر الاستراتيجي الأجنبي", width: 220, align: "right", headerAlign: "right" },
-    { 
-      field: "previous_quarter_value", 
-      headerName: `الأرباح المبقاة للربع السابق (${previousQuarterHeaderLabel(quarterFilter)})`, 
-      width: 250, 
-      align: "right", 
-      headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          return (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography>{numValue.toLocaleString('en-US')}</Typography>
-              <Tooltip title="عرض دليل الاستخراج - انقر لرؤية المستند الأصلي" arrow placement="top">
-                <IconButton 
-                  size="small" 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    let evidenceQuarter;
-                    if (quarterFilter === "Q1") {
-                      evidenceQuarter = "Annual_2024"; // Corrected from Q4_2024
-                    } else if (quarterFilter === "Q2") {
-                      evidenceQuarter = "Q1_2025";
-                    } else if (quarterFilter === "Q3") {
-                      evidenceQuarter = "Q2_2025";
-                    } else {
-                      evidenceQuarter = "Q3_2025";
-                    }
-                    fetchEvidenceData(params.row.symbol, evidenceQuarter);
-                    setEvidenceModalOpen(true);
-                  }}
-                  sx={{ 
-                    color: '#1e6641',
-                    '&:hover': { bgcolor: '#e8f5ee' },
-                    padding: '8px',
-                    minWidth: '40px',
-                    width: '40px',
-                    height: '40px'
-                  }}
-                >
-                  <VisibilityIcon sx={{ fontSize: '16px' }} />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          );
-        }
-        return value;
-      }
-    },
-    { 
-      field: "current_quarter_value", 
-      headerName: `الأرباح المبقاة للربع الحالي (${currentQuarterHeaderLabel(quarterFilter)})`, 
-      width: 250, 
-      align: "right", 
-      headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          return (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography>{numValue.toLocaleString('en-US')}</Typography>
-              <Tooltip title="عرض دليل الاستخراج - انقر لرؤية المستند الأصلي" arrow placement="top">
-                <IconButton 
-                  size="small" 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // For current quarter, use the quarterFilter
-                    let evidenceQuarter;
-                    if (quarterFilter === "Q1") {
-                      evidenceQuarter = "Q1_2025";
-                    } else if (quarterFilter === "Q2") {
-                      evidenceQuarter = "Q2_2025";
-                    } else if (quarterFilter === "Q3") {
-                      evidenceQuarter = "Q3_2025";
-                    } else {
-                      evidenceQuarter = "Q4_2025";
-                    }
-                    fetchEvidenceData(params.row.symbol, evidenceQuarter);
-                    setEvidenceModalOpen(true);
-                  }}
-                  sx={{ 
-                    color: '#1e6641',
-                    '&:hover': { bgcolor: '#e8f5ee' },
-                    padding: '8px',
-                    minWidth: '40px',
-                    width: '40px',
-                    height: '40px'
-                  }}
-                >
-                  <VisibilityIcon sx={{ fontSize: '16px' }} />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          );
-        }
-        return value;
-      }
-    },
-    { 
-      field: "flow", 
-      headerName: "حجم الزيادة أو النقص في الأرباح المبقاة (التدفق)", 
-      width: 280, 
-      align: "right", 
-      headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          const isPositive = numValue >= 0;
-          const color = isPositive ? '#2e7d32' : '#d32f2f';
-          const sign = numValue === 0 ? '' : (isPositive ? '+' : '');
-          return (
-            <Typography sx={{ color, fontWeight: 'bold' }}>
-              {sign}{numValue.toLocaleString('en-US')} SAR
-            </Typography>
-          );
-        }
-        return value;
-      }
-    },
-    { 
-      field: "foreign_investor_flow", 
-      headerName: "تدفق الأرباح المبقاة للمستثمر الأجنبي", 
-      width: 250, 
-      align: "right", 
-      headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          const isPositive = numValue >= 0;
-          const color = isPositive ? '#2e7d32' : '#d32f2f';
-          const sign = numValue === 0 ? '' : (isPositive ? '+' : '');
-          return (
-            <Typography sx={{ color, fontWeight: 'bold' }}>
-              {sign}{numValue.toLocaleString('en-US')} SAR
-            </Typography>
-          );
-        }
-        return value;
-      }
-    },
-    { 
-      field: "net_profit",
-      headerName: "صافي الربح",
-      width: 150,
-      align: "right",
-      headerAlign: "right",
-      renderCell: (params) => {
-        const companySymbol = params.row.company_symbol;
-        const companyNetProfit = netProfitData[companySymbol];
-        
-        if (companyNetProfit?.quarterly_net_profit) {
-          // Map quarter filter to 2025 data
-          let quarterKey;
-          if (quarterFilter === "Q1") quarterKey = "Q1 2025";
-          else if (quarterFilter === "Q2") quarterKey = "Q2 2025";
-          else if (quarterFilter === "Q3") quarterKey = "Q3 2025";
-          
-          const value = companyNetProfit.quarterly_net_profit[quarterKey];
-          
-          if (value !== undefined && value !== null) {
-            return value.toLocaleString('en-US');
-          }
-        }
-        return "لايوجد";
-      }
-    },
-    { 
-      field: "net_profit_foreign_investor",
-      headerName: "صافي الربح للمستثمر الأجنبي",
-      width: 220,
-      align: "right",
-      headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          const isPositive = numValue >= 0;
-          const color = isPositive ? '#2e7d32' : '#d32f2f';
-          const sign = numValue === 0 ? '' : (isPositive ? '+' : '');
-          return (
-            <Typography sx={{ color, fontWeight: 'bold' }}>
-              {sign}{numValue.toLocaleString('en-US')} SAR
-            </Typography>
-          );
-        }
-        return value;
-      }
-    },
-    { 
-      field: "distributed_profits_foreign_investor",
-      headerName: "الأرباح الموزعة للمستثمر الأجنبي",
-      width: 250,
-      align: "right",
-      headerAlign: "right",
-      renderCell: (params) => {
-        const value = params.value;
-        if (!value || value === "" || value === "null" || value === "undefined") {
-          return "لايوجد";
-        }
-        const numValue = Number.parseFloat(value);
-        if (!Number.isNaN(numValue)) {
-          const isPositive = numValue >= 0;
-          const color = isPositive ? '#2e7d32' : '#d32f2f';
-          const sign = numValue === 0 ? '' : (isPositive ? '+' : '');
-          return (
-            <Typography sx={{ color, fontWeight: 'bold' }}>
-              {sign}{numValue.toLocaleString('en-US')} SAR
-            </Typography>
-          );
-        }
-        return value;
-      }
-    }
-  ];
+  const columns = useMemo(
+    () => buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, setEvidenceModalOpen),
+    [quarterFilter, netProfitData, fetchEvidenceData],
+  );
 
   useEffect(() => {
     fetchData();
@@ -1041,22 +1111,11 @@ function App() {
     fetchNetProfitData();
   }, []);
 
-  // Expose row update on globalThis so nested modal handlers can invoke it without prop drilling
   useEffect(() => {
-    globalThis.updateRowAfterCorrection = (updated) => {
-      setRows((prevRows) => prevRows.map(row => {
-        if (row.symbol && updated.company_symbol && row.symbol.toString() === updated.company_symbol.toString()) {
-          return {
-            ...row,
-            retained_earnings: updated.retained_earnings || updated.value || '',
-            reinvested_earnings: updated.reinvested_earnings || '',
-            year: updated.year || '',
-            error: updated.error || '',
-          };
-        }
-        return row;
-      }));
+    const applyCorrection = (updated) => {
+      setRows((prevRows) => mergeCorrectionIntoRows(prevRows, updated));
     };
+    globalThis.updateRowAfterCorrection = applyCorrection;
     return () => { globalThis.updateRowAfterCorrection = undefined; };
   }, []);
 
@@ -1122,13 +1181,9 @@ function App() {
       
       // Get the filename from the response headers
       const contentDisposition = response.headers.get('content-disposition');
-      let filename = 'dashboard_table.xlsx';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
+      const filename = parseFilenameFromContentDisposition(contentDisposition);
+      const exportedDateLabel = customExportDate;
+      const quarterLabel = getQuarterFromDate(customExportDate);
       
       // Create blob and download
       const blob = await response.blob();
@@ -1140,10 +1195,6 @@ function App() {
       a.click();
       globalThis.URL.revokeObjectURL(url);
       a.remove();
-      
-      // Clear the custom inputs after successful export
-      setCustomExportDate("");
-      setCustomFileName("");
       
       // Refetch user exports so the new file appears in the sidebar
       setUserExportsLoading(true);
@@ -1157,10 +1208,12 @@ function App() {
           setUserExportsError('فشل في تحميل ملفات قام المستخدم بحفظها');
           setUserExportsLoading(false);
         });
-        
-      // Show enhanced success message
-      const successMessage = `✅ تم التصدير بنجاح!\n\n📁 اسم الملف: ${filename}\n📅 التاريخ: ${customExportDate}\n🎯 الربع: ${getQuarterFromDate(customExportDate)}\n\nتم حفظ الملف في مجلد التنزيلات`;
+
+      const successMessage = `✅ تم التصدير بنجاح!\n\n📁 اسم الملف: ${filename}\n📅 التاريخ: ${exportedDateLabel}\n🎯 الربع: ${quarterLabel}\n\nتم حفظ الملف في مجلد التنزيلات`;
       alert(successMessage);
+
+      setCustomExportDate("");
+      setCustomFileName("");
       
     } catch (error) {
       console.error('Error exporting to Excel:', error);
@@ -1422,65 +1475,7 @@ function App() {
                 <Button
                   variant="contained"
                   disabled={!selectPdf && !selectNet}
-                  onClick={async () => {
-                    setUpdateModalOpen(false);
-                    if (selectPdf && !selectNet) {
-                      try {
-                        const res = await fetch(`${API_URL}/api/run_pdfs_pipeline`, { method: 'POST' });
-                        const data = await res.json();
-                        if (res.status === 202) {
-                          setPdfJobStatus({ status: 'running' });
-                          setPdfProgressOpen(true);
-                          startPollPdf();
-                        } else if (res.status === 409) {
-                          alert('❌ ' + (data.hint_ar || data.hint || data.message || 'يوجد مهمة متصفح أخرى قيد التشغيل.'));
-                        } else {
-                          alert('❌ لم يتم بدء العملية: ' + (data.message || ''));
-                        }
-                      } catch (e) {
-                        alert('❌ خطأ في الاتصال بالخادم: ' + e.message);
-                      }
-                    } else if (!selectPdf && selectNet) {
-                      try {
-                        const res = await fetch(`${API_URL}/api/run_net_profit_scrape`, { method: 'POST' });
-                        const data = await res.json();
-                        if (res.status === 202) {
-                          setNetJobStatus({ status: 'running' });
-                          setNetProgressOpen(true);
-                          startPollNet();
-                        } else if (res.status === 409) {
-                          alert('❌ ' + (data.hint_ar || data.hint || data.message || 'يوجد مهمة متصفح أخرى قيد التشغيل.'));
-                        } else {
-                          alert('❌ لم يتم بدء العملية: ' + (data.message || ''));
-                        }
-                      } catch (e) {
-                        alert('❌ خطأ في الاتصال بالخادم: ' + e.message);
-                      }
-                    } else {
-                      // Both: single PDF pipeline already scrapes net profit per company (same Playwright session).
-                      try {
-                        const resPdf = await fetch(`${API_URL}/api/run_pdfs_pipeline`, { method: 'POST' });
-                        const dataPdf = await resPdf.json();
-                        if (resPdf.status === 202) {
-                          setPdfJobStatus({ status: 'running' });
-                          setBothProgressOpen(true);
-                          startPollPdf(() => {
-                            setBothProgressOpen(false);
-                            setBothIsStopping(false);
-                          });
-                        } else if (resPdf.status === 409) {
-                          alert('❌ ' + (dataPdf.hint_ar || dataPdf.hint || dataPdf.message || 'يوجد مهمة متصفح أخرى قيد التشغيل.'));
-                        } else {
-                          alert('❌ لم يتم بدء عملية تحديث PDF: ' + (dataPdf.message || ''));
-                        }
-                      } catch (e) {
-                        alert('❌ خطأ في الاتصال بالخادم: ' + e.message);
-                      } finally {
-                        setSelectPdf(false);
-                        setSelectNet(false);
-                      }
-                    }
-                  }}
+                  onClick={handleUpdateModalConfirm}
                   sx={{ bgcolor: '#1e6641', '&:hover': { bgcolor: '#14532d' } }}
                 >
                   بدء التحديث
@@ -1578,7 +1573,7 @@ function App() {
         }}>
           <DataGrid
             rows={filteredRows}
-            columns={getColumns(quarterFilter)}
+            columns={columns}
             pageSize={20}
             rowsPerPageOptions={[20, 50, 100]}
             disableSelectionOnClick
@@ -1792,9 +1787,9 @@ function App() {
               </Typography>
             </ListItem>
           )}
-          {!userExportsLoading && !userExportsError && userExports.length > 0 && userExports.map((file, idx) => (
+          {!userExportsLoading && !userExportsError && userExports.length > 0 && userExports.map((file) => (
               <ListItem
-                key={idx}
+                key={file.download_url || file.filename || file.export_date}
                 tabIndex={0}
                 sx={{
                   pl: 3, pr: 3, py: 2.2,
@@ -2439,8 +2434,8 @@ function App() {
           {!snapshotsLoading && !snapshotsError && snapshots.length === 0 && (
             <ListItem sx={{ justifyContent: 'center', color: '#888' }}>لا توجد ملفات محفوظة بعد</ListItem>
           )}
-          {!snapshotsLoading && !snapshotsError && snapshots.length > 0 && snapshots.map((snap, idx) => (
-              <ListItem key={idx} sx={{ pl: 2, pr: 2, py: 1, borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center' }}>
+          {!snapshotsLoading && !snapshotsError && snapshots.length > 0 && snapshots.map((snap) => (
+              <ListItem key={`${snap.year}-${snap.quarter}-${snap.snapshot_date}-${snap.download_url || ''}`} sx={{ pl: 2, pr: 2, py: 1, borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center' }}>
                 <Typography sx={{ fontWeight: 500, color: '#1e6641', flexGrow: 1, fontSize: 16 }}>
                   {`${snap.year} ${snap.quarter.replace('Q', 'Q')} — ${snap.snapshot_date}`}
                 </Typography>

@@ -126,60 +126,17 @@ def run_quarterly_refresh_and_archive(project_root: Path) -> None:
         flow_data = pd.read_csv(csv_path)
 
         net_profit_path = project_root / QUARTERLY_NET_PROFIT_RELPATH
-        net_profit_data = {}
-        if net_profit_path.exists():
-            with open(net_profit_path, "r", encoding="utf-8") as f:
-                net_profit_raw = json.load(f)
-                for company in net_profit_raw:
-                    symbol = company.get("company_symbol")
-                    if symbol:
-                        net_profit_data[symbol] = company
+        net_profit_data = _scheduler_load_net_profit_map(net_profit_path)
 
         now = datetime.now()
-        current_month = now.month
-        current_year = now.year
-
-        if current_month in [1, 2, 3]:
-            current_quarter = "Q1"
-            previous_quarter = "Q4"
-            previous_year = current_year - 1
-        elif current_month in [4, 5, 6]:
-            current_quarter = "Q2"
-            previous_quarter = "Q1"
-            previous_year = current_year
-        elif current_month in [7, 8, 9]:
-            current_quarter = "Q3"
-            previous_quarter = "Q2"
-            previous_year = current_year
-        else:
-            current_quarter = "Q4"
-            previous_quarter = "Q3"
-            previous_year = current_year
+        current_quarter, previous_quarter, current_year, previous_year = (
+            _scheduler_calendar_quarters(now)
+        )
 
         logger.info(f"[Scheduler] Current quarter: {current_quarter} {current_year}")
         logger.info(f"[Scheduler] Previous quarter: {previous_quarter} {previous_year}")
 
-        flow_map = {}
-        for _, row in flow_data.iterrows():
-            symbol = str(row.get("company_symbol", "")).strip()
-            quarter = str(row.get("quarter", "")).strip()
-            if symbol and quarter:
-                if symbol not in flow_map:
-                    flow_map[symbol] = {}
-                flow_map[symbol][quarter] = {
-                    "previous_value": row.get("previous_value", ""),
-                    "current_value": row.get("current_value", ""),
-                    "flow": row.get("flow", ""),
-                    "flow_formula": row.get("flow_formula", ""),
-                    "year": row.get("year", ""),
-                    "reinvested_earnings_flow": row.get("reinvested_earnings_flow", ""),
-                    "net_profit_foreign_investor": row.get(
-                        "net_profit_foreign_investor", ""
-                    ),
-                    "distributed_profits_foreign_investor": row.get(
-                        "distributed_profits_foreign_investor", ""
-                    ),
-                }
+        flow_map = _scheduler_build_flow_map(flow_data)
 
         logger.info(
             f"[Scheduler] Exporting data for {current_quarter} {current_year}..."
@@ -208,13 +165,6 @@ def run_quarterly_refresh_and_archive(project_root: Path) -> None:
 
             current_quarter_header = f"{current_year}{current_quarter}"
 
-            def format_value(value):
-                if value == "" or value is None:
-                    return MSG_NO_DATA_AR
-                if value == 0 or (isinstance(value, str) and value.strip() == "0"):
-                    return "0"
-                return value
-
             merged_row = {
                 "رمز الشركة": symbol,
                 "الشركة": ownership_row.get("company_name", ""),
@@ -225,23 +175,23 @@ def run_quarterly_refresh_and_archive(project_root: Path) -> None:
                 "ملكية المستثمر الاستراتيجي الأجنبي": ownership_row.get(
                     "investor_limit", ""
                 ),
-                f"الأرباح المبقاة للربع السابق ({previous_quarter_header})": format_value(
+                f"الأرباح المبقاة للربع السابق ({previous_quarter_header})": _scheduler_export_format_value(
                     quarter_data.get("previous_value", "")
                 ),
-                f"الأرباح المبقاة للربع الحالي ({current_quarter_header})": format_value(
+                f"الأرباح المبقاة للربع الحالي ({current_quarter_header})": _scheduler_export_format_value(
                     quarter_data.get("current_value", "")
                 ),
-                "حجم الزيادة أو النقص في الأرباح المبقاة (التدفق)": format_value(
+                "حجم الزيادة أو النقص في الأرباح المبقاة (التدفق)": _scheduler_export_format_value(
                     quarter_data.get("flow", "")
                 ),
-                "تدفق الأرباح المبقاة للمستثمر الأجنبي": format_value(
+                "تدفق الأرباح المبقاة للمستثمر الأجنبي": _scheduler_export_format_value(
                     quarter_data.get("reinvested_earnings_flow", "")
                 ),
                 "صافي الربح": net_profit_value,
-                "صافي الربح للمستثمر الأجنبي": format_value(
+                "صافي الربح للمستثمر الأجنبي": _scheduler_export_format_value(
                     quarter_data.get("net_profit_foreign_investor", "")
                 ),
-                "الأرباح الموزعة للمستثمر الأجنبي": format_value(
+                "الأرباح الموزعة للمستثمر الأجنبي": _scheduler_export_format_value(
                     quarter_data.get("distributed_profits_foreign_investor", "")
                 ),
             }
@@ -295,6 +245,136 @@ def run_quarterly_refresh_and_archive(project_root: Path) -> None:
         logger.error(f"[Scheduler] Traceback: {traceback.format_exc()}")
 
 
+def _playwright_busy_response(project_root: Path):
+    """409 when PDF downloader or net-profit scraper already holds the Playwright lock."""
+    message = (
+        "Another Playwright job is running (PDF download or net-profit scrape). "
+        "Wait for it to finish, then try again."
+    )
+    payload = {"status": "busy", "message": message}
+    pdfs_st = None
+    net_st = None
+    try:
+        pp = project_root / RUNTIME_PDFS_PROGRESS_JSON
+        if pp.exists():
+            with open(pp, "r", encoding="utf-8") as f:
+                pdfs_st = json.load(f).get("status")
+    except Exception as e:
+        _debug_ignored("read PDFs progress for busy response", e)
+    try:
+        np_path = project_root / RUNTIME_NET_PROGRESS_JSON
+        if np_path.exists():
+            with open(np_path, "r", encoding="utf-8") as f:
+                net_st = json.load(f).get("status")
+    except Exception as e:
+        _debug_ignored("read net profit progress for busy response", e)
+    stop_pdf = False
+    try:
+        stop_pdf = (project_root / RUNTIME_STOP_PDFS_FLAG).exists()
+    except Exception as e:
+        _debug_ignored("check PDF stop flag for busy response", e)
+
+    if net_st == "running":
+        payload["hint"] = (
+            "Quarterly net profit scrape is still running. Wait until it finishes, then retry."
+        )
+        payload["hint_ar"] = (
+            "جمع صافي الربح من السوق ما زال يعمل. انتظر حتى تنتهي العملية ثم أعد المحاولة."
+        )
+    elif pdfs_st == "running":
+        payload["hint"] = (
+            "PDF download from the exchange is in progress. Wait until it completes or use Stop."
+        )
+        payload["hint_ar"] = (
+            "تحميل ملفات PDF ما زال قيد التشغيل. انتظر حتى ينتهي أو اضغط إيقاف، ثم أعد المحاولة."
+        )
+    elif pdfs_st == "finalizing":
+        payload["hint"] = (
+            "After Stop: extraction may be running in the background, while the PDF downloader browser "
+            "is still closing (often 10–40 seconds). The lock releases when that process exits."
+        )
+        payload["hint_ar"] = (
+            "بعد «إيقاف»: الاستخراج قد يعمل في الخلفية، والمتصفح الخاص بتحميل PDF ما زال يُغلق "
+            "(غالباً 10–40 ثانية). انتظر ثم جرّب تحديث صافي الربح."
+        )
+    elif pdfs_st == "completed" and stop_pdf:
+        payload["hint"] = (
+            "Extraction and follow-up steps are done, but the PDF downloader browser is still closing. "
+            "Wait a few seconds and retry net profit."
+        )
+        payload["hint_ar"] = (
+            "انتهى الاستخراج والخطوات التالية؛ ما يزال فقط إغلاق متصفح التحميل. "
+            "انتظر بضع ثوانٍ ثم جرّب تحديث صافي الربح."
+        )
+    elif stop_pdf:
+        payload["hint"] = (
+            "A PDF stop was requested; wait for the downloader process to exit, then retry."
+        )
+        payload["hint_ar"] = (
+            "تم طلب إيقاف التحميل—انتظر حتى تُغلق جلسة المتصفح للتحميل، ثم أعد المحاولة."
+        )
+    return jsonify(payload), 409
+
+
+def _scheduler_export_format_value(value: object) -> str:
+    if value == "" or value is None:
+        return MSG_NO_DATA_AR
+    if value == 0 or (isinstance(value, str) and value.strip() == "0"):
+        return "0"
+    return value
+
+
+def _scheduler_build_flow_map(flow_data: pd.DataFrame) -> dict:
+    flow_map: dict = {}
+    for _, row in flow_data.iterrows():
+        symbol = str(row.get("company_symbol", "")).strip()
+        quarter = str(row.get("quarter", "")).strip()
+        if symbol and quarter:
+            if symbol not in flow_map:
+                flow_map[symbol] = {}
+            flow_map[symbol][quarter] = {
+                "previous_value": row.get("previous_value", ""),
+                "current_value": row.get("current_value", ""),
+                "flow": row.get("flow", ""),
+                "flow_formula": row.get("flow_formula", ""),
+                "year": row.get("year", ""),
+                "reinvested_earnings_flow": row.get("reinvested_earnings_flow", ""),
+                "net_profit_foreign_investor": row.get(
+                    "net_profit_foreign_investor", ""
+                ),
+                "distributed_profits_foreign_investor": row.get(
+                    "distributed_profits_foreign_investor", ""
+                ),
+            }
+    return flow_map
+
+
+def _scheduler_load_net_profit_map(net_profit_path: Path) -> dict:
+    net_profit_data: dict = {}
+    if not net_profit_path.exists():
+        return net_profit_data
+    with open(net_profit_path, "r", encoding="utf-8") as f:
+        net_profit_raw = json.load(f)
+    for company in net_profit_raw:
+        symbol = company.get("company_symbol")
+        if symbol:
+            net_profit_data[symbol] = company
+    return net_profit_data
+
+
+def _scheduler_calendar_quarters(now: datetime) -> tuple[str, str, int, int]:
+    """Returns (current_quarter, previous_quarter, current_year, previous_year)."""
+    current_year = now.year
+    current_month = now.month
+    if current_month in (1, 2, 3):
+        return "Q1", "Q4", current_year, current_year - 1
+    if current_month in (4, 5, 6):
+        return "Q2", "Q1", current_year, current_year
+    if current_month in (7, 8, 9):
+        return "Q3", "Q2", current_year, current_year
+    return "Q4", "Q3", current_year, current_year
+
+
 def run_daily_ownership_scraper_and_recalc(project_root: Path) -> None:
     """Daily job: ownership JSON + recalc flows."""
     try:
@@ -331,6 +411,188 @@ def run_daily_ownership_scraper_and_recalc(project_root: Path) -> None:
         logger.error(f"[Scheduler] ❌ Unexpected error in daily ownership job: {e}")
 
 
+def _run_pdfs_pipeline_task(project_root: Path, downloader: Path, extractor: Path) -> None:
+    downloader_ok = False
+    try:
+        try:
+            stop_flag_file = project_root / RUNTIME_STOP_PDFS_FLAG
+            if stop_flag_file.exists():
+                stop_flag_file.unlink()
+            net_stop_stale = project_root / RUNTIME_STOP_NET_FLAG
+            if net_stop_stale.exists():
+                net_stop_stale.unlink()
+        except Exception as e:
+            _debug_ignored("clear stale stop flags before PDF pipeline", e)
+        try:
+            progress_path = project_root / RUNTIME_PDFS_PROGRESS_JSON
+            progress_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(progress_path, "w", encoding="utf-8") as f:
+                json.dump({"status": "running", "processed": 0}, f)
+        except Exception as e:
+            _debug_ignored("write PDFs progress running", e)
+        logger.info("[Pipeline] Starting hybrid downloader...")
+        env = os.environ.copy()
+        env.setdefault("STOP_FLAG_FILE", str(project_root / RUNTIME_STOP_PDFS_FLAG))
+        env.setdefault(
+            "PROGRESS_FILE", str(project_root / RUNTIME_PDFS_PROGRESS_JSON)
+        )
+        subprocess.run(
+            [sys.executable, str(downloader)],
+            cwd=str(project_root),
+            check=True,
+            text=True,
+            env=env,
+        )
+        downloader_ok = True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"[Pipeline] Downloader failed: {e}")
+    except Exception as e:
+        logger.error(f"[Pipeline] Downloader crashed: {e}")
+    finally:
+        PLAYWRIGHT_SUBPROCESS_LOCK.release()
+
+    if not downloader_ok:
+        return
+    try:
+        stop_flag_file = project_root / RUNTIME_STOP_PDFS_FLAG
+        if stop_flag_file.exists():
+            logger.info(
+                "[Pipeline] Stop flag detected after downloader. Skipping extractor/calc/screenshots (finalization thread handles them)."
+            )
+            return
+    except Exception as e:
+        _debug_ignored("check stop flag after PDF downloader", e)
+    try:
+        logger.info("[Pipeline] Starting retained earnings extractor...")
+        subprocess.run(
+            [sys.executable, str(extractor)],
+            cwd=str(project_root),
+            check=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"[Pipeline] Extractor failed: {e}")
+        return
+    try:
+        logger.info("[Pipeline] Recalculating reinvested earnings...")
+        calc = project_root / SCRIPT_CALCULATE_REINVESTED
+        subprocess.run(
+            [sys.executable, str(calc)],
+            cwd=str(project_root),
+            check=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"[Pipeline] Calculation failed: {e}")
+        return
+    try:
+        logger.info("[Pipeline] Regenerating evidence screenshots...")
+        shots = project_root / SCRIPT_GENERATE_SCREENSHOTS
+        subprocess.run(
+            [sys.executable, str(shots)],
+            cwd=str(project_root),
+            check=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"[Pipeline] Screenshot regeneration failed: {e}")
+    try:
+        progress_path = project_root / RUNTIME_PDFS_PROGRESS_JSON
+        with open(progress_path, "w", encoding="utf-8") as f:
+            json.dump({"status": "completed"}, f)
+    except Exception as e:
+        _debug_ignored("write PDFs progress completed", e)
+    try:
+        stop_flag_file = project_root / RUNTIME_STOP_PDFS_FLAG
+        if stop_flag_file.exists():
+            stop_flag_file.unlink()
+    except Exception as e:
+        _debug_ignored("unlink PDF stop flag after pipeline", e)
+    logger.info(
+        "[Pipeline] ✅ Pipeline completed (download → extract → calculate → screenshots)"
+    )
+
+
+def _run_net_profit_pipeline_task(project_root: Path, scraper: Path) -> None:
+    scraper_ok = False
+    try:
+        logger.info("[NetProfit] Starting scraper...")
+        try:
+            net_stop_flag = project_root / RUNTIME_STOP_NET_FLAG
+            if net_stop_flag.exists():
+                net_stop_flag.unlink()
+        except Exception as e:
+            _debug_ignored("clear net profit stop flag before scrape", e)
+        try:
+            net_progress = project_root / RUNTIME_NET_PROGRESS_JSON
+            net_progress.parent.mkdir(parents=True, exist_ok=True)
+            with open(net_progress, "w", encoding="utf-8") as f:
+                json.dump({"status": "running", "processed": 0}, f)
+        except Exception as e:
+            _debug_ignored("write net profit progress running", e)
+        env = os.environ.copy()
+        env.setdefault(
+            "STOP_FLAG_FILE", str(project_root / RUNTIME_STOP_NET_FLAG)
+        )
+        env.setdefault(
+            "PROGRESS_FILE", str(project_root / RUNTIME_NET_PROGRESS_JSON)
+        )
+        proc = subprocess.run(
+            [sys.executable, str(scraper)],
+            cwd=str(project_root),
+            text=True,
+            env=env,
+        )
+        if proc.returncode == 0:
+            scraper_ok = True
+        else:
+            prog_path = project_root / RUNTIME_NET_PROGRESS_JSON
+            blocked = False
+            try:
+                if prog_path.exists():
+                    with open(prog_path, "r", encoding="utf-8") as fp:
+                        blocked = json.load(fp).get("status") == "blocked_by_waf"
+            except Exception as e:
+                _debug_ignored("read net profit progress for WAF check", e)
+            if blocked:
+                logger.warning(
+                    "[NetProfit] Scraper exited after Saudi Exchange Access Denied (Akamai); "
+                    "no recalc. Fix network/browser (e.g. PLAYWRIGHT_CHANNEL=chrome) and retry."
+                )
+            else:
+                logger.error(
+                    f"[NetProfit] Scraper failed with exit code {proc.returncode}"
+                )
+    except Exception as e:
+        logger.error(f"[NetProfit] Scraper crashed: {e}")
+    finally:
+        PLAYWRIGHT_SUBPROCESS_LOCK.release()
+
+    if not scraper_ok:
+        return
+    try:
+        logger.info(
+            "[NetProfit] Recalculating flows after net profit update..."
+        )
+        calc = project_root / SCRIPT_CALCULATE_REINVESTED
+        subprocess.run(
+            [sys.executable, str(calc)],
+            cwd=str(project_root),
+            check=True,
+            text=True,
+        )
+        logger.info("[NetProfit] ✅ Completed")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"[NetProfit] Recalculation failed: {e}")
+    finally:
+        try:
+            net_stop_flag = project_root / RUNTIME_STOP_NET_FLAG
+            if net_stop_flag.exists():
+                net_stop_flag.unlink()
+        except Exception as e:
+            _debug_ignored("clear net profit stop flag after scrape", e)
+
+
 def create_app():
     app = Flask(__name__)
     # Allow CORS from React frontend - supports both localhost and production
@@ -343,76 +605,6 @@ def create_app():
     RESULTS_FILE = PROJECT_ROOT / RESULTS_JSON_RELPATH
     METADATA_FILE = SCREENSHOTS_DIR / "evidence_metadata.json"
     CSV_FILE = PROJECT_ROOT / REINVESTED_CSV_RELPATH
-
-    def playwright_busy_response():
-        """409 when PDF downloader or net-profit scraper already holds the Playwright lock."""
-        message = (
-            "Another Playwright job is running (PDF download or net-profit scrape). "
-            "Wait for it to finish, then try again."
-        )
-        payload = {"status": "busy", "message": message}
-        pdfs_st = None
-        net_st = None
-        try:
-            pp = PROJECT_ROOT / RUNTIME_PDFS_PROGRESS_JSON
-            if pp.exists():
-                with open(pp, "r", encoding="utf-8") as f:
-                    pdfs_st = json.load(f).get("status")
-        except Exception as e:
-            _debug_ignored("read PDFs progress for busy response", e)
-        try:
-            np_path = PROJECT_ROOT / RUNTIME_NET_PROGRESS_JSON
-            if np_path.exists():
-                with open(np_path, "r", encoding="utf-8") as f:
-                    net_st = json.load(f).get("status")
-        except Exception as e:
-            _debug_ignored("read net profit progress for busy response", e)
-        stop_pdf = False
-        try:
-            stop_pdf = (PROJECT_ROOT / RUNTIME_STOP_PDFS_FLAG).exists()
-        except Exception as e:
-            _debug_ignored("check PDF stop flag for busy response", e)
-
-        if net_st == "running":
-            payload["hint"] = (
-                "Quarterly net profit scrape is still running. Wait until it finishes, then retry."
-            )
-            payload["hint_ar"] = (
-                "جمع صافي الربح من السوق ما زال يعمل. انتظر حتى تنتهي العملية ثم أعد المحاولة."
-            )
-        elif pdfs_st == "running":
-            payload["hint"] = (
-                "PDF download from the exchange is in progress. Wait until it completes or use Stop."
-            )
-            payload["hint_ar"] = (
-                "تحميل ملفات PDF ما زال قيد التشغيل. انتظر حتى ينتهي أو اضغط إيقاف، ثم أعد المحاولة."
-            )
-        elif pdfs_st == "finalizing":
-            payload["hint"] = (
-                "After Stop: extraction may be running in the background, while the PDF downloader browser "
-                "is still closing (often 10–40 seconds). The lock releases when that process exits."
-            )
-            payload["hint_ar"] = (
-                "بعد «إيقاف»: الاستخراج قد يعمل في الخلفية، والمتصفح الخاص بتحميل PDF ما زال يُغلق "
-                "(غالباً 10–40 ثانية). انتظر ثم جرّب تحديث صافي الربح."
-            )
-        elif pdfs_st == "completed" and stop_pdf:
-            payload["hint"] = (
-                "Extraction and follow-up steps are done, but the PDF downloader browser is still closing. "
-                "Wait a few seconds and retry net profit."
-            )
-            payload["hint_ar"] = (
-                "انتهى الاستخراج والخطوات التالية؛ ما يزال فقط إغلاق متصفح التحميل. "
-                "انتظر بضع ثوانٍ ثم جرّب تحديث صافي الربح."
-            )
-        elif stop_pdf:
-            payload["hint"] = (
-                "A PDF stop was requested; wait for the downloader process to exit, then retry."
-            )
-            payload["hint_ar"] = (
-                "تم طلب إيقاف التحميل—انتظر حتى تُغلق جلسة المتصفح للتحميل، ثم أعد المحاولة."
-            )
-        return jsonify(payload), 409
 
     @app.route("/api/evidence/<company_symbol>.png", methods=["GET"])
     def get_evidence_screenshot(company_symbol):
@@ -827,113 +1019,6 @@ def create_app():
             }
         )
 
-    def _run_pdfs_pipeline_task(project_root: Path, downloader: Path, extractor: Path):
-        downloader_ok = False
-        try:
-            # Clear any stale stop flag from previous runs to avoid auto-stop
-            try:
-                stop_flag_file = project_root / RUNTIME_STOP_PDFS_FLAG
-                if stop_flag_file.exists():
-                    stop_flag_file.unlink()
-                net_stop_stale = project_root / RUNTIME_STOP_NET_FLAG
-                if net_stop_stale.exists():
-                    net_stop_stale.unlink()
-            except Exception as e:
-                _debug_ignored("clear stale stop flags before PDF pipeline", e)
-            # mark progress running
-            try:
-                progress_path = project_root / RUNTIME_PDFS_PROGRESS_JSON
-                progress_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(progress_path, "w", encoding="utf-8") as f:
-                    json.dump({"status": "running", "processed": 0}, f)
-            except Exception as e:
-                _debug_ignored("write PDFs progress running", e)
-            logger.info("[Pipeline] Starting hybrid downloader...")
-            env = os.environ.copy()
-            env.setdefault("STOP_FLAG_FILE", str(project_root / RUNTIME_STOP_PDFS_FLAG))
-            env.setdefault(
-                "PROGRESS_FILE", str(project_root / RUNTIME_PDFS_PROGRESS_JSON)
-            )
-            subprocess.run(
-                [sys.executable, str(downloader)],
-                cwd=str(project_root),
-                check=True,
-                text=True,
-                env=env,
-            )
-            downloader_ok = True
-        except subprocess.CalledProcessError as e:
-            logger.error(f"[Pipeline] Downloader failed: {e}")
-        except Exception as e:
-            logger.error(f"[Pipeline] Downloader crashed: {e}")
-        finally:
-            PLAYWRIGHT_SUBPROCESS_LOCK.release()
-
-        if not downloader_ok:
-            return
-        # If a stop was requested, do not run extractor/calc/screenshots here.
-        try:
-            stop_flag_file = project_root / RUNTIME_STOP_PDFS_FLAG
-            if stop_flag_file.exists():
-                logger.info(
-                    "[Pipeline] Stop flag detected after downloader. Skipping extractor/calc/screenshots (finalization thread handles them)."
-                )
-                # Keep status "finalizing" until stop handler's _finalize_after_stop writes "completed"
-                return
-        except Exception as e:
-            _debug_ignored("check stop flag after PDF downloader", e)
-        try:
-            logger.info("[Pipeline] Starting retained earnings extractor...")
-            subprocess.run(
-                [sys.executable, str(extractor)],
-                cwd=str(project_root),
-                check=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            logger.error(f"[Pipeline] Extractor failed: {e}")
-            return
-        try:
-            logger.info("[Pipeline] Recalculating reinvested earnings...")
-            calc = project_root / SCRIPT_CALCULATE_REINVESTED
-            subprocess.run(
-                [sys.executable, str(calc)],
-                cwd=str(project_root),
-                check=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            logger.error(f"[Pipeline] Calculation failed: {e}")
-            return
-        try:
-            logger.info("[Pipeline] Regenerating evidence screenshots...")
-            shots = project_root / SCRIPT_GENERATE_SCREENSHOTS
-            subprocess.run(
-                [sys.executable, str(shots)],
-                cwd=str(project_root),
-                check=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"[Pipeline] Screenshot regeneration failed: {e}")
-        # mark completed
-        try:
-            progress_path = project_root / RUNTIME_PDFS_PROGRESS_JSON
-            with open(progress_path, "w", encoding="utf-8") as f:
-                json.dump({"status": "completed"}, f)
-        except Exception as e:
-            _debug_ignored("write PDFs progress completed", e)
-        # Ensure stop flag is cleared for next runs
-        try:
-            stop_flag_file = project_root / RUNTIME_STOP_PDFS_FLAG
-            if stop_flag_file.exists():
-                stop_flag_file.unlink()
-        except Exception as e:
-            _debug_ignored("unlink PDF stop flag after pipeline", e)
-        logger.info(
-            "[Pipeline] ✅ Pipeline completed (download → extract → calculate → screenshots)"
-        )
-
     @app.route("/api/run_pdfs_pipeline", methods=["POST"])
     def run_pdfs_pipeline():
         """
@@ -953,7 +1038,7 @@ def create_app():
                 ), 404
 
             if not PLAYWRIGHT_SUBPROCESS_LOCK.acquire(blocking=False):
-                return playwright_busy_response()
+                return _playwright_busy_response(PROJECT_ROOT)
 
             threading.Thread(
                 target=_run_pdfs_pipeline_task,
@@ -982,93 +1067,13 @@ def create_app():
                 ), 404
 
             if not PLAYWRIGHT_SUBPROCESS_LOCK.acquire(blocking=False):
-                return playwright_busy_response()
+                return _playwright_busy_response(PROJECT_ROOT)
 
-            def _run_net_profit_task():
-                scraper_ok = False
-                try:
-                    logger.info("[NetProfit] Starting scraper...")
-                    # Clear any stale stop flag
-                    try:
-                        net_stop_flag = project_root / RUNTIME_STOP_NET_FLAG
-                        if net_stop_flag.exists():
-                            net_stop_flag.unlink()
-                    except Exception as e:
-                        _debug_ignored("clear net profit stop flag before scrape", e)
-                    # Initialize progress file as running
-                    try:
-                        net_progress = project_root / RUNTIME_NET_PROGRESS_JSON
-                        net_progress.parent.mkdir(parents=True, exist_ok=True)
-                        with open(net_progress, "w", encoding="utf-8") as f:
-                            json.dump({"status": "running", "processed": 0}, f)
-                    except Exception as e:
-                        _debug_ignored("write net profit progress running", e)
-                    env = os.environ.copy()
-                    env.setdefault(
-                        "STOP_FLAG_FILE", str(project_root / RUNTIME_STOP_NET_FLAG)
-                    )
-                    env.setdefault(
-                        "PROGRESS_FILE", str(project_root / RUNTIME_NET_PROGRESS_JSON)
-                    )
-                    proc = subprocess.run(
-                        [sys.executable, str(scraper)],
-                        cwd=str(project_root),
-                        text=True,
-                        env=env,
-                    )
-                    if proc.returncode == 0:
-                        scraper_ok = True
-                    else:
-                        prog_path = project_root / RUNTIME_NET_PROGRESS_JSON
-                        blocked = False
-                        try:
-                            if prog_path.exists():
-                                with open(prog_path, "r", encoding="utf-8") as fp:
-                                    blocked = (
-                                        json.load(fp).get("status") == "blocked_by_waf"
-                                    )
-                        except Exception as e:
-                            _debug_ignored("read net profit progress for WAF check", e)
-                        if blocked:
-                            logger.warning(
-                                "[NetProfit] Scraper exited after Saudi Exchange Access Denied (Akamai); "
-                                "no recalc. Fix network/browser (e.g. PLAYWRIGHT_CHANNEL=chrome) and retry."
-                            )
-                        else:
-                            logger.error(
-                                f"[NetProfit] Scraper failed with exit code {proc.returncode}"
-                            )
-                except Exception as e:
-                    logger.error(f"[NetProfit] Scraper crashed: {e}")
-                finally:
-                    PLAYWRIGHT_SUBPROCESS_LOCK.release()
-
-                if not scraper_ok:
-                    return
-                try:
-                    logger.info(
-                        "[NetProfit] Recalculating flows after net profit update..."
-                    )
-                    calc = project_root / SCRIPT_CALCULATE_REINVESTED
-                    subprocess.run(
-                        [sys.executable, str(calc)],
-                        cwd=str(project_root),
-                        check=True,
-                        text=True,
-                    )
-                    logger.info("[NetProfit] ✅ Completed")
-                except subprocess.CalledProcessError as e:
-                    logger.error(f"[NetProfit] Recalculation failed: {e}")
-                finally:
-                    # Ensure stop flag cleared at end
-                    try:
-                        net_stop_flag = project_root / RUNTIME_STOP_NET_FLAG
-                        if net_stop_flag.exists():
-                            net_stop_flag.unlink()
-                    except Exception as e:
-                        _debug_ignored("clear net profit stop flag after scrape", e)
-
-            threading.Thread(target=_run_net_profit_task, daemon=True).start()
+            threading.Thread(
+                target=_run_net_profit_pipeline_task,
+                args=(project_root, scraper),
+                daemon=True,
+            ).start()
             return jsonify(
                 {
                     "status": "accepted",

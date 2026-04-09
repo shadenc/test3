@@ -2,4 +2,4 @@
 
 from .generate_evidence_screenshots import EvidenceScreenshotGenerator
 
-__all__ = ['EvidenceScreenshotGenerator'] 
+__all__ = ["EvidenceScreenshotGenerator"]

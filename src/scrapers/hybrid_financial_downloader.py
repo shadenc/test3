@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 import random
 
-from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import (
+    async_playwright,
+    Browser,
+    Page,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 try:
     from .tadawul_debug import (
@@ -56,17 +61,15 @@ def _net_stop_flag_path() -> Path:
 def _pdf_stop_requested() -> bool:
     return _pdf_stop_flag_path().exists() or _net_stop_flag_path().exists()
 
+
 # Statement type priorities (most preferred first)
-STATEMENT_PRIORITIES = [
-    "annual",
-    "quarterly", 
-    "interim",
-    "financial",
-    "report"
-]
+STATEMENT_PRIORITIES = ["annual", "quarterly", "interim", "financial", "report"]
 
 # Set the target year here. By default, use the current year, but you can set it manually if needed.
-target_year = datetime.now().year  # Change this to e.g. 2024 to process 2024 and 2023 Q4
+target_year = (
+    datetime.now().year
+)  # Change this to e.g. 2024 to process 2024 and 2023 Q4
+
 
 def get_company_symbols_from_json():
     """Get company symbols from the existing JSON file."""
@@ -75,10 +78,10 @@ def get_company_symbols_from_json():
         if not json_path.exists():
             print(f"❌ JSON file not found: {json_path}")
             return []
-        
-        with open(json_path, 'r', encoding='utf-8') as f:
+
+        with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        symbols = [item['symbol'] for item in data if item.get('symbol')]
+        symbols = [item["symbol"] for item in data if item.get("symbol")]
         # Optional limit for testing
         try:
             limit = int(os.environ.get("LIMIT_COMPANIES", "0"))
@@ -88,10 +91,11 @@ def get_company_symbols_from_json():
             pass
         print(f"📋 Found {len(symbols)} company symbols from JSON file")
         return symbols
-        
+
     except Exception as e:
         print(f"❌ Error reading JSON file: {e}")
         return []
+
 
 async def setup_stealth_browser():
     """Setup Playwright browser with stealth configuration from download_pdf_playwright.py."""
@@ -122,29 +126,29 @@ async def setup_stealth_browser():
         launch_kw["channel"] = _ch
 
     browser = await playwright.chromium.launch(**launch_kw)
-    
+
     context = await browser.new_context(
-        viewport={'width': 1920, 'height': 1080},
-        user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport={"width": 1920, "height": 1080},
+        user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         accept_downloads=True,
-        locale='en-US',
-        timezone_id='America/New_York',
-        permissions=['geolocation'],
+        locale="en-US",
+        timezone_id="America/New_York",
+        permissions=["geolocation"],
         extra_http_headers={
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0'
-        }
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
+        },
     )
-    
+
     # Add stealth scripts from download_pdf_playwright.py
     await context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', {
@@ -169,7 +173,7 @@ async def setup_stealth_browser():
             }),
         });
     """)
-    
+
     return playwright, browser, context
 
 
@@ -203,9 +207,9 @@ async def _dismiss_common_overlays(page: Page) -> None:
         'button:has-text("Agree")',
         'button:has-text("OK")',
         '[aria-label="Close"]',
-        'button.cookie-accept',
-        '.cookie-accept',
-        '#onetrust-accept-btn-handler',
+        "button.cookie-accept",
+        ".cookie-accept",
+        "#onetrust-accept-btn-handler",
     ]
     for sel in candidates:
         try:
@@ -379,7 +383,9 @@ async def navigate_to_company_profile(page: Page, symbol: str) -> bool:
                 await page.wait_for_timeout(2500)
                 if await is_tadawul_access_denied_page(page):
                     _warn_access_denied()
-                    await dump_tadawul_navigation_debug(page, f"access_denied_direct_{symbol}")
+                    await dump_tadawul_navigation_debug(
+                        page, f"access_denied_direct_{symbol}"
+                    )
                     continue
                 if await _looks_like_company_profile(page):
                     print(f"✅ Loaded company profile directly for {symbol}")
@@ -388,12 +394,18 @@ async def navigate_to_company_profile(page: Page, symbol: str) -> bool:
                 print(f"⚠️ Direct profile URL failed ({durl[:60]}…): {e}")
 
         try:
-            await page.goto("https://www.saudiexchange.sa/", wait_until="domcontentloaded", timeout=60000)
+            await page.goto(
+                "https://www.saudiexchange.sa/",
+                wait_until="domcontentloaded",
+                timeout=60000,
+            )
             await page.wait_for_timeout(2000)
             await _dismiss_common_overlays(page)
             if await is_tadawul_access_denied_page(page):
                 _warn_access_denied()
-                await dump_tadawul_navigation_debug(page, f"access_denied_home_{symbol}")
+                await dump_tadawul_navigation_debug(
+                    page, f"access_denied_home_{symbol}"
+                )
                 raise TadawulAccessDeniedError()
         except TadawulAccessDeniedError:
             raise
@@ -420,7 +432,11 @@ async def navigate_to_company_profile(page: Page, symbol: str) -> bool:
         await _click_tadawul_search_submit(page)
         await page.wait_for_timeout(2000)
         links = await page.query_selector_all("a.pageLink")
-        if os.environ.get("TADAWUL_DEBUG_PAGE_LINKS", "").strip() in ("1", "true", "yes"):
+        if os.environ.get("TADAWUL_DEBUG_PAGE_LINKS", "").strip() in (
+            "1",
+            "true",
+            "yes",
+        ):
             print("--- <a.pageLink> elements on the page ---")
             for i, link in enumerate(links):
                 text = (await link.text_content() or "").strip()
@@ -449,7 +465,10 @@ async def navigate_to_company_profile(page: Page, symbol: str) -> bool:
             pass
         return False
 
-async def get_all_financial_reports(page: Page, symbol: str, *, skip_profile_navigation: bool = False):
+
+async def get_all_financial_reports(
+    page: Page, symbol: str, *, skip_profile_navigation: bool = False
+):
     """Find all available financial report PDFs (Annual, Q1-Q4) and their years, filtered for target_year and Q4 of previous year.
 
     If skip_profile_navigation is True, the caller must have already opened the company profile (single shared visit with net-profit scrape).
@@ -486,10 +505,10 @@ async def get_all_financial_reports(page: Page, symbol: str, *, skip_profile_nav
         # Wait for any table to appear first
         await page.wait_for_selector("table", timeout=10000)
         print("Table found, waiting for content to load...")
-        
+
         # Wait a bit more for dynamic content
         await page.wait_for_timeout(2000)
-        
+
         # Try to find the financial statements table
         table_selector = "table:has-text('Annual')"
         try:
@@ -499,10 +518,13 @@ async def get_all_financial_reports(page: Page, symbol: str, *, skip_profile_nav
             # If that fails, look for any table with financial data
             tables = await page.query_selector_all("table")
             print(f"Found {len(tables)} tables on the page")
-            
+
             for i, table in enumerate(tables):
                 table_text = await table.text_content()
-                if any(term in table_text.lower() for term in ["annual", "quarterly", "financial", "report"]):
+                if any(
+                    term in table_text.lower()
+                    for term in ["annual", "quarterly", "financial", "report"]
+                ):
                     print(f"Table {i} appears to contain financial data")
                     break
             else:
@@ -522,7 +544,7 @@ async def get_all_financial_reports(page: Page, symbol: str, *, skip_profile_nav
         return []
     rows = await page.query_selector_all("table tbody tr")
     print(f"Found {len(rows)} rows in financial statements table")
-    
+
     # Debug: Print all row contents to understand the structure
     print("--- Table rows debug ---")
     for i, row in enumerate(rows):
@@ -536,10 +558,10 @@ async def get_all_financial_reports(page: Page, symbol: str, *, skip_profile_nav
             row_text.append(f"cell{j}: '{cell_text}'")
         print(f"Row {i}: {row_text}")
     print("--- End table debug ---")
-    
+
     statement_types = ["annual", "q1", "q2", "q3", "q4"]
     found_reports = []
-    
+
     for stype in statement_types:
         if _pdf_stop_requested():
             print("🛑 Stop requested while resolving report rows.")
@@ -551,18 +573,20 @@ async def get_all_financial_reports(page: Page, symbol: str, *, skip_profile_nav
             if first_cell:
                 cell_text = (await first_cell.text_content() or "").strip().lower()
                 # More flexible matching
-                if stype in cell_text or any(term in cell_text for term in ["report", "statement"]):
+                if stype in cell_text or any(
+                    term in cell_text for term in ["report", "statement"]
+                ):
                     row = r
                     print(f"Found row for {stype}: '{cell_text}'")
                     break
-        
+
         if not row:
             print(f"No '{stype}' row found in table.")
             continue
-            
+
         cells = await row.query_selector_all("td")
         print(f"Row for {stype} has {len(cells)} cells")
-        
+
         for i, year in enumerate(years):
             cell_index = i + 1  # offset by 1 for the label cell
             if cell_index >= len(cells):
@@ -573,7 +597,9 @@ async def get_all_financial_reports(page: Page, symbol: str, *, skip_profile_nav
                 pdf_url = await pdf_link.get_attribute("href")
                 if pdf_url:
                     normalized_stype = stype.lower().strip()
-                    print(f"🎯 Found {normalized_stype.upper()} PDF URL for {symbol} {year}: {pdf_url}")
+                    print(
+                        f"🎯 Found {normalized_stype.upper()} PDF URL for {symbol} {year}: {pdf_url}"
+                    )
                     found_reports.append((normalized_stype, year, pdf_url))
     # Updated filter: Q1, Q2, Q3 of current year and Annual of previous year
     filtered_reports = []
@@ -582,8 +608,11 @@ async def get_all_financial_reports(page: Page, symbol: str, *, skip_profile_nav
             filtered_reports.append((stype, year, pdf_url))
         elif year == target_year - 1 and stype == "annual":
             filtered_reports.append((stype, year, pdf_url))
-    print(f"[DEBUG] Will download for {symbol}: {[f'{stype}_{year}' for stype, year, _ in filtered_reports]}")
+    print(
+        f"[DEBUG] Will download for {symbol}: {[f'{stype}_{year}' for stype, year, _ in filtered_reports]}"
+    )
     return filtered_reports
+
 
 def _net_profit_scrape_enabled_with_pdf() -> bool:
     """Scrape quarterly net profit in the same browser visit as PDFs unless SKIP_NET_PROFIT_WITH_PDF is set."""
@@ -605,7 +634,9 @@ except ImportError:
     )
 
 
-async def download_pdf_with_stealth(page: Page, pdf_url: str, symbol: str, year: int, statement_type: str) -> bool:
+async def download_pdf_with_stealth(
+    page: Page, pdf_url: str, symbol: str, year: int, statement_type: str
+) -> bool:
     """Download PDF using the working stealth approach, generalized for statement type."""
     try:
         if _pdf_stop_requested():
@@ -619,12 +650,12 @@ async def download_pdf_with_stealth(page: Page, pdf_url: str, symbol: str, year:
         print(f"📥 Downloading {filename}...")
         if not pdf_url.startswith("http"):
             pdf_url = f"https://www.saudiexchange.sa{pdf_url}"
-        response = await page.goto(pdf_url, wait_until='networkidle')
+        response = await page.goto(pdf_url, wait_until="networkidle")
         if _pdf_stop_requested():
             print("🛑 Stop requested after navigation. Aborting download save.")
             return False
-        content_type = response.headers.get('content-type', '')
-        if 'pdf' in content_type.lower():
+        content_type = response.headers.get("content-type", "")
+        if "pdf" in content_type.lower():
             print(f"✅ Successfully accessed PDF for {symbol}")
             pdf_content = await page.evaluate("""
                 async () => {
@@ -639,7 +670,7 @@ async def download_pdf_with_stealth(page: Page, pdf_url: str, symbol: str, year:
                 }
             """)
             if pdf_content:
-                with open(pdf_path, 'wb') as f:
+                with open(pdf_path, "wb") as f:
                     f.write(bytes(pdf_content))
                 print(f"✅ Downloaded {filename} ({len(pdf_content)} bytes)")
                 return True
@@ -647,13 +678,18 @@ async def download_pdf_with_stealth(page: Page, pdf_url: str, symbol: str, year:
                 print(f"❌ Failed to get PDF content for {symbol}")
                 return False
         else:
-            print(f"❌ Did not get PDF content for {symbol} (Content-Type: {content_type})")
+            print(
+                f"❌ Did not get PDF content for {symbol} (Content-Type: {content_type})"
+            )
             return False
     except Exception as e:
         print(f"❌ Download error for {symbol}: {e}")
         return False
 
-async def process_company_with_retry(browser: Browser, symbol: str, max_retries: int = 3) -> bool:
+
+async def process_company_with_retry(
+    browser: Browser, symbol: str, max_retries: int = 3
+) -> bool:
     for attempt in range(max_retries):
         page = None
         net_result: Optional[Dict[str, Any]] = None
@@ -674,22 +710,30 @@ async def process_company_with_retry(browser: Browser, symbol: str, max_retries:
                     print("🛑 Stop caused profile navigation failure — not retrying.")
                     return False
                 if attempt < max_retries - 1:
-                    print(f"🔄 Retrying {symbol} (attempt {attempt + 2}/{max_retries})...")
+                    print(
+                        f"🔄 Retrying {symbol} (attempt {attempt + 2}/{max_retries})..."
+                    )
                     await asyncio.sleep(random.uniform(2, 5))
                     continue
                 return False
 
-            reports = await get_all_financial_reports(page, symbol, skip_profile_navigation=True)
+            reports = await get_all_financial_reports(
+                page, symbol, skip_profile_navigation=True
+            )
             all_success = True
             stopped_by_user = False
             for stype, year, pdf_url in reports:
                 # Check stop flag before starting each report download
                 if _pdf_stop_requested():
-                    print("🛑 Stop requested. Halting further report downloads for this company.")
+                    print(
+                        "🛑 Stop requested. Halting further report downloads for this company."
+                    )
                     all_success = False
                     stopped_by_user = True
                     break
-                success = await download_pdf_with_stealth(page, pdf_url, symbol, year, stype)
+                success = await download_pdf_with_stealth(
+                    page, pdf_url, symbol, year, stype
+                )
                 if not success:
                     all_success = False
 
@@ -704,7 +748,9 @@ async def process_company_with_retry(browser: Browser, symbol: str, max_retries:
                         if net_result:
                             merge_quarterly_net_profit_incremental(net_result)
                     else:
-                        print(f"⚠️ Skipping net profit (financial info tab) for {symbol} after PDF step.")
+                        print(
+                            f"⚠️ Skipping net profit (financial info tab) for {symbol} after PDF step."
+                        )
                 except Exception as e:
                     print(f"⚠️ Net profit scrape after PDFs failed for {symbol}: {e}")
 
@@ -715,13 +761,17 @@ async def process_company_with_retry(browser: Browser, symbol: str, max_retries:
                 return False
             if not reports:
                 if net_result:
-                    print(f"✅ No PDF report rows for {symbol}, but net profit was updated in the same visit.")
+                    print(
+                        f"✅ No PDF report rows for {symbol}, but net profit was updated in the same visit."
+                    )
                     return True
                 if _pdf_stop_requested():
                     print("🛑 Stop caused empty report list — not retrying.")
                     return False
                 if attempt < max_retries - 1:
-                    print(f"🔄 Retrying {symbol} (attempt {attempt + 2}/{max_retries})...")
+                    print(
+                        f"🔄 Retrying {symbol} (attempt {attempt + 2}/{max_retries})..."
+                    )
                     await asyncio.sleep(random.uniform(2, 5))
                     continue
                 return False
@@ -756,6 +806,7 @@ async def process_company_with_retry(browser: Browser, symbol: str, max_retries:
                 await asyncio.sleep(random.uniform(2, 5))
     return False
 
+
 async def download_all_financial_statements() -> int:
     """Download the most recent financial statements for all companies. Returns 0 on success, 1 if Akamai/WAF blocked."""
     # Get company symbols from JSON file
@@ -779,7 +830,9 @@ async def download_all_financial_statements() -> int:
 
     try:
         # progress reporting
-        progress_path = Path(os.environ.get("PROGRESS_FILE", DEFAULT_PDFS_PROGRESS_FILE))
+        progress_path = Path(
+            os.environ.get("PROGRESS_FILE", DEFAULT_PDFS_PROGRESS_FILE)
+        )
         processed = 0
         success_count = 0
         failed_count = 0
@@ -791,10 +844,10 @@ async def download_all_financial_statements() -> int:
             if _pdf_stop_requested():
                 print("🛑 Stop requested. Ending PDF pipeline early.")
                 break
-            print(f"\n{'='*50}")
+            print(f"\n{'=' * 50}")
             print(f"📊 Processing {symbol} ({i}/{len(companies)})")
-            print(f"{'='*50}")
-            
+            print(f"{'=' * 50}")
+
             try:
                 success = await process_company_with_retry(browser, symbol)
             except TadawulAccessDeniedError:
@@ -817,17 +870,21 @@ async def download_all_financial_statements() -> int:
             try:
                 progress_path.parent.mkdir(parents=True, exist_ok=True)
                 row_status = "finalizing" if _pdf_stop_requested() else "running"
-                with open(progress_path, 'w', encoding='utf-8') as f:
-                    json.dump({
-                        "status": row_status,
-                        "processed": processed,
-                        "success": success_count,
-                        "failed": failed_count,
-                        "current_symbol": symbol
-                    }, f, ensure_ascii=False)
+                with open(progress_path, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "status": row_status,
+                            "processed": processed,
+                            "success": success_count,
+                            "failed": failed_count,
+                            "current_symbol": symbol,
+                        },
+                        f,
+                        ensure_ascii=False,
+                    )
             except Exception:
                 pass
-            
+
             # Add delay between companies
             if i < len(companies):
                 # If stop requested, skip waiting and break immediately
@@ -843,19 +900,19 @@ async def download_all_financial_statements() -> int:
                         print("🛑 Stop requested during wait between companies.")
                         break
                     await asyncio.sleep(min(0.5, deadline - loop.time()))
-        
+
         # Summary
-        print(f"\n{'='*50}")
+        print(f"\n{'=' * 50}")
         print("📊 DOWNLOAD SUMMARY")
-        print(f"{'='*50}")
+        print(f"{'=' * 50}")
         print(f"✅ Successful: {success_count}")
         print(f"❌ Failed: {failed_count}")
         total = success_count + failed_count
-        rate = (success_count/total*100) if total > 0 else 0.0
+        rate = (success_count / total * 100) if total > 0 else 0.0
         print(f"📈 Success Rate: {rate:.1f}%")
         # mark done (blocked_by_waf skips downstream extractor in API when exit code != 0)
         try:
-            with open(progress_path, 'w', encoding='utf-8') as f:
+            with open(progress_path, "w", encoding="utf-8") as f:
                 # After API "Stop", extraction runs in parallel; when downloader exits the whole step is done
                 if _pdf_stop_requested():
                     end_status = "completed"
@@ -890,13 +947,13 @@ async def download_all_financial_statements() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(asyncio.run(download_all_financial_statements()))
-    
+
     # Comment out the test function when running all companies
     # async def test_single_company():
     #     # Test with the company we know has data
     #     symbol = "2030"
     #     print(f"🧪 Testing with {symbol} to verify new filtering...")
-    #     
+    #
     #     playwright, browser, context = await setup_stealth_browser()
     #     try:
     #         success = await process_company_with_retry(browser, symbol)
@@ -904,6 +961,6 @@ if __name__ == "__main__":
     #     finally:
     #             await browser.close()
     #             await playwright.stop()
-    # 
+    #
     # # Run the test
-    # asyncio.run(test_single_company()) 
+    # asyncio.run(test_single_company())

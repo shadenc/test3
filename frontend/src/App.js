@@ -37,13 +37,20 @@ import LinearProgress from '@mui/material/LinearProgress';
 // API URL configuration - supports both localhost and production
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5003';
 
+const devLog =
+  process.env.NODE_ENV === 'development'
+    ? (...args) => {
+        console.log(...args);
+      }
+    : () => {};
+
 /** Parse retained-earnings flow CSV; extracted to limit callback nesting (Sonar). */
 function parseQuarterlyFlowCsvText(csvText) {
   return new Promise((resolve) => {
     Papa.parse(csvText, {
       header: true,
       complete: (result) => {
-        console.log("CSV parsing result:", result);
+        devLog("CSV parsing result:", result);
         if (result.data && result.data.length > 0) {
           const cleanedData = result.data
             .filter((row) => row.company_symbol && row.company_symbol.trim() !== '')
@@ -55,10 +62,10 @@ function parseQuarterlyFlowCsvText(csvText) {
               });
               return cleanedRow;
             });
-          console.log("Cleaned CSV data:", cleanedData);
+          devLog("Cleaned CSV data:", cleanedData);
           resolve(cleanedData);
         } else {
-          console.log("No CSV data found");
+          devLog("No CSV data found");
           resolve([]);
         }
       },
@@ -93,10 +100,10 @@ function buildFlowMapFromQuarterlyRows(quarterlyFlowData) {
       net_profit_foreign_investor: row.net_profit_foreign_investor || '',
       distributed_profits_foreign_investor: row.distributed_profits_foreign_investor || '',
     };
-    console.log(`Mapped flow data for ${symbol} ${quarter}:`, {
+    devLog(`Mapped flow data for ${symbol} ${quarter}:`, {
       ...flowMap[symbol][quarter],
       net_profit_foreign_investor: row.net_profit_foreign_investor,
-      distributed_profits_foreign_investor: row.distributed_profit_foreign_investor,
+      distributed_profits_foreign_investor: row.distributed_profits_foreign_investor,
     });
   });
   return flowMap;
@@ -125,7 +132,7 @@ function mergeOwnershipWithQuarterlyFlow(foreignOwnershipData, flowMap, onEviden
         onEvidenceClick,
       };
       if (mergedData.length < 5 || symbol === '2222') {
-        console.log(`Row ${mergedData.length} (${symbol} ${quarter}):`, {
+        devLog(`Row ${mergedData.length} (${symbol} ${quarter}):`, {
           symbol: mergedRow.symbol,
           company_name: mergedRow.company_name,
           quarter: mergedRow.quarter,
@@ -215,8 +222,8 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
                       objectFit: 'contain'
                     }}
                     onLoad={() => {
-                      console.log('Evidence image loaded with quarter:', evidenceData.evidence?.requested_quarter);
-                      console.log('Full image URL:', `${API_URL}/api/evidence/${evidenceData.company_symbol}.png?quarter=${evidenceData.evidence?.requested_quarter || 'Q1_2025'}&t=${Date.now()}`);
+                      devLog('Evidence image loaded with quarter:', evidenceData.evidence?.requested_quarter);
+                      devLog('Full image URL:', `${API_URL}/api/evidence/${evidenceData.company_symbol}.png?quarter=${evidenceData.evidence?.requested_quarter || 'Q1_2025'}&t=${Date.now()}`);
                     }}
                   />
                 </Box>
@@ -638,19 +645,19 @@ function App() {
     // Combine both datasets
     Promise.all([loadForeignOwnership, loadQuarterlyFlowData])
       .then(([foreignOwnershipData, quarterlyFlowData]) => {
-        console.log("Foreign ownership data count:", foreignOwnershipData.length);
-        console.log("Quarterly flow data count:", quarterlyFlowData.length);
+        devLog("Foreign ownership data count:", foreignOwnershipData.length);
+        devLog("Quarterly flow data count:", quarterlyFlowData.length);
 
         const flowMap = buildFlowMapFromQuarterlyRows(quarterlyFlowData);
-        console.log("Flow map keys:", Object.keys(flowMap));
-        console.log("Sample flow data for 2222:", flowMap["2222"]);
+        devLog("Flow map keys:", Object.keys(flowMap));
+        devLog("Sample flow data for 2222:", flowMap["2222"]);
 
         const mergedData = mergeOwnershipWithQuarterlyFlow(
           foreignOwnershipData,
           flowMap,
           handleEvidenceClick,
         );
-        console.log("Final merged data sample:", mergedData.slice(0, 3));
+        devLog("Final merged data sample:", mergedData.slice(0, 3));
 
         setRows(mergedData);
         setLoading(false);
@@ -663,18 +670,18 @@ function App() {
 
   // Fetch archived snapshots
   useEffect(() => {
-    console.log('🔄 Fetching archived snapshots...');
+    devLog('🔄 Fetching archived snapshots...');
     setSnapshotsLoading(true);
     fetch(`${API_URL}/api/ownership_snapshots`)
       .then(res => {
-        console.log('📡 Snapshots response status:', res.status);
+        devLog('📡 Snapshots response status:', res.status);
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
         return res.json();
       })
       .then(data => {
-        console.log('✅ Snapshots data received:', data);
+        devLog('✅ Snapshots data received:', data);
         setSnapshots(data);
         setSnapshotsLoading(false);
       })
@@ -687,18 +694,18 @@ function App() {
 
   // Fetch user exports
   useEffect(() => {
-    console.log('🔄 Fetching user exports...');
+    devLog('🔄 Fetching user exports...');
     setUserExportsLoading(true);
     fetch(`${API_URL}/api/user_exports`)
       .then(res => {
-        console.log('📡 User exports response status:', res.status);
+        devLog('📡 User exports response status:', res.status);
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
         return res.json();
       })
       .then(data => {
-        console.log('✅ User exports data received:', data);
+        devLog('✅ User exports data received:', data);
         setUserExports(data);
         setUserExportsLoading(false);
       })
@@ -1005,7 +1012,7 @@ function App() {
     // Filter by quarter - now all companies have rows for all quarters
     filtered = filtered.filter(row => row.quarter === quarterFilter);
     
-    console.log(`Showing ${filtered.length} companies for ${quarterFilter}`);
+    devLog(`Showing ${filtered.length} companies for ${quarterFilter}`);
     
     // Then apply search filter
     if (search) {

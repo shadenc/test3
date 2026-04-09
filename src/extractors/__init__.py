@@ -2,4 +2,4 @@
 
 from .extract_retained_earnings_all_pdfs import EnhancedRetainedEarningsExtractor
 
-__all__ = ['EnhancedRetainedEarningsExtractor'] 
+__all__ = ["EnhancedRetainedEarningsExtractor"]

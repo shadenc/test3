@@ -1,0 +1,45 @@
+# SonarCloud — one-time setup (≈2 min):
+# 1) https://sonarcloud.io → Log in with GitHub → Add project → Import this repo
+# 2) GitHub → repo → Settings → Secrets and variables → Actions → New repository secret:
+#    SONAR_TOKEN          (from SonarCloud: My Account → Security)
+#    SONAR_ORGANIZATION   (SonarCloud org key, e.g. your-github-username)
+#    SONAR_PROJECT_KEY    (shown in SonarCloud project overview, e.g. org_saudi-investment-analyzer)
+# 3) Push to main — workflow runs on push & PR.
+
+name: SonarCloud
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  sonar:
+    name: Analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies (for JS/TS analysis)
+        run: npm ci
+        working-directory: frontend
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}

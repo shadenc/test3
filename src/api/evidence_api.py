@@ -6,6 +6,7 @@ Flask API for serving evidence screenshots and extraction metadata
 from flask import Flask, send_file, jsonify, request, make_response
 from flask_cors import CORS
 import json
+import re
 import os
 from pathlib import Path
 import logging
@@ -51,6 +52,24 @@ MSG_INTERNAL_ERROR = "Internal server error"
 MSG_FILE_NOT_FOUND = "File not found"
 MSG_OWNERSHIP_UPDATED_OK = "Ownership data updated successfully"
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+# Quarter reference labels (Sonar python:S1192 — single definition)
+_REF_Q1_2025 = "Q1 2025"
+_REF_Q2_2025 = "Q2 2025"
+_REF_Q3_2025 = "Q3 2025"
+_REF_Q4_2025 = "Q4 2025"
+_REF_ANNUAL_2024 = "Annual 2024"
+
+
+def _safe_log_symbol(value: object) -> str:
+    """Sanitize user-supplied symbol for logs (Sonar pythonsecurity:S5145)."""
+    raw = str(value).strip()[:16]
+    return raw if re.fullmatch(r"[0-9A-Za-z_-]+", raw) else "<invalid_symbol>"
+
+
+def _safe_log_quarter_param(value: object) -> str:
+    raw = str(value).strip()[:48]
+    return raw if re.fullmatch(r"[0-9A-Za-z_]+", raw) else "<invalid_quarter>"
 
 
 def run_quarterly_refresh_and_archive(project_root: Path) -> None:
@@ -393,7 +412,7 @@ def create_app():
             )
         return jsonify(payload), 409
 
-    @app.route("/api/evidence/<company_symbol>.png")
+    @app.route("/api/evidence/<company_symbol>.png", methods=["GET"])
     def get_evidence_screenshot(company_symbol):
         """
         Serve evidence screenshot for a specific company and quarter
@@ -431,7 +450,8 @@ def create_app():
             # Special handling for Q1_2025: if no Q1 screenshot found, try annual 2024
             if quarter == "Q1_2025" and not screenshot_files:
                 logger.info(
-                    f"No Q1 2025 screenshot found for {company_symbol}, trying annual 2024 as previous quarter reference"
+                    "No Q1 2025 screenshot found for %s, trying annual 2024 as previous quarter reference",
+                    _safe_log_symbol(company_symbol),
                 )
                 screenshot_files = list(SCREENSHOTS_DIR.glob(fallback_pattern))
 
@@ -446,16 +466,23 @@ def create_app():
             # Use the first available screenshot
             screenshot_path = screenshot_files[0]
             logger.info(
-                f"Serving screenshot: {screenshot_path} for company {company_symbol} quarter {quarter}"
+                "Serving screenshot: %s for company %s quarter %s",
+                screenshot_path,
+                _safe_log_symbol(company_symbol),
+                _safe_log_quarter_param(quarter),
             )
 
             return send_file(str(screenshot_path), mimetype="image/png")
 
         except Exception as e:
-            logger.error(f"Error serving screenshot for {company_symbol}: {e}")
+            logger.error(
+                "Error serving screenshot for %s: %s",
+                _safe_log_symbol(company_symbol),
+                e,
+            )
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
 
-    @app.route("/api/extractions")
+    @app.route("/api/extractions", methods=["GET"])
     def get_extractions():
         """
         Get all extraction results with evidence information
@@ -496,7 +523,7 @@ def create_app():
             logger.error(f"Error serving extractions: {e}")
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
 
-    @app.route("/api/extractions/<company_symbol>")
+    @app.route("/api/extractions/<company_symbol>", methods=["GET"])
     def get_extraction_by_company(company_symbol):
         """
         Get extraction result for a specific company and quarter
@@ -548,7 +575,8 @@ def create_app():
             # Special handling for Q1_2025: if no Q1 screenshot found, try annual 2024
             if quarter == "Q1_2025" and not has_evidence:
                 logger.info(
-                    f"No Q1 2025 screenshot found for {company_symbol}, trying annual 2024 as previous quarter reference"
+                    "No Q1 2025 screenshot found for %s, trying annual 2024 as previous quarter reference",
+                    _safe_log_symbol(company_symbol),
                 )
                 screenshot_files = list(SCREENSHOTS_DIR.glob(fallback_pattern))
                 has_evidence = len(screenshot_files) > 0
@@ -570,10 +598,14 @@ def create_app():
             return jsonify(company_result)
 
         except Exception as e:
-            logger.error(f"Error serving extraction for {company_symbol}: {e}")
+            logger.error(
+                "Error serving extraction for %s: %s",
+                _safe_log_symbol(company_symbol),
+                e,
+            )
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
 
-    @app.route("/api/evidence/metadata")
+    @app.route("/api/evidence/metadata", methods=["GET"])
     def get_evidence_metadata():
         """
         Get metadata about all available evidence screenshots
@@ -593,7 +625,7 @@ def create_app():
             logger.error(f"Error serving evidence metadata: {e}")
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
 
-    @app.route("/api/evidence/<company_symbol>")
+    @app.route("/api/evidence/<company_symbol>", methods=["GET"])
     def get_evidence(company_symbol):
         """
         Get evidence data for a specific company
@@ -640,10 +672,14 @@ def create_app():
             return jsonify(response)
 
         except Exception as e:
-            logger.error(f"Error serving evidence for {company_symbol}: {e}")
+            logger.error(
+                "Error serving evidence for %s: %s",
+                _safe_log_symbol(company_symbol),
+                e,
+            )
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
 
-    @app.route("/api/retained_earnings_flow.csv")
+    @app.route("/api/retained_earnings_flow.csv", methods=["GET"])
     def get_retained_earnings_flow_csv():
         """Get retained earnings flow data as CSV."""
         try:
@@ -666,10 +702,10 @@ def create_app():
             return response
 
         except Exception as e:
-            print(f"Error serving CSV: {e}")
+            logger.error("Error serving retained earnings flow CSV: %s", e)
             return f"Error: {str(e)}", 500
 
-    @app.route("/api/reinvested_earnings_results.csv")
+    @app.route("/api/reinvested_earnings_results.csv", methods=["GET"])
     def get_reinvested_earnings_results():
         """
         Serve reinvested earnings results as CSV (legacy endpoint)
@@ -776,7 +812,7 @@ def create_app():
                 {"status": "error", "message": f"Refresh failed: {str(e)}"}
             ), 500
 
-    @app.route("/api/health")
+    @app.route("/api/health", methods=["GET"])
     def health_check():
         """
         Health check endpoint
@@ -1528,7 +1564,10 @@ def create_app():
                     # Override quarter filter with custom date quarter
                     quarter_filter = custom_quarter
                     logger.info(
-                        f"Custom date {custom_date} maps to quarter {custom_quarter} {custom_year}"
+                        "Custom date %s maps to quarter %s %s",
+                        custom_date_obj.date().isoformat(),
+                        custom_quarter,
+                        custom_year,
                     )
 
                 except ValueError:
@@ -1707,7 +1746,7 @@ def create_app():
                 }
             ), 500
 
-    @app.route("/api/ownership_snapshots")
+    @app.route("/api/ownership_snapshots", methods=["GET"])
     def list_ownership_snapshots():
         """
         List all archived quarterly Excel files for user download
@@ -1749,7 +1788,7 @@ def create_app():
                     )
         return jsonify(result)
 
-    @app.route("/snapshots/<year_q>.xlsx")
+    @app.route("/snapshots/<year_q>.xlsx", methods=["GET"])
     def download_snapshot(year_q):
         """
         Download a specific archived Excel file by year and quarter
@@ -1769,7 +1808,7 @@ def create_app():
             mimetype=MIME_XLSX,
         )
 
-    @app.route("/api/user_exports")
+    @app.route("/api/user_exports", methods=["GET"])
     def list_user_exports():
         """
         List all user-triggered Excel exports in output/excel/
@@ -1799,7 +1838,7 @@ def create_app():
             )
         return jsonify(result)
 
-    @app.route("/user_exports/<filename>")
+    @app.route("/user_exports/<filename>", methods=["GET"])
     def download_user_export(filename):
         """
         Download a user-triggered Excel export by filename
@@ -1836,7 +1875,7 @@ def create_app():
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/api/net-profit")
+    @app.route("/api/net-profit", methods=["GET"])
     def get_net_profit():
         """Get quarterly net profit data for all companies."""
         try:
@@ -1857,10 +1896,10 @@ def create_app():
             return jsonify(lookup_data)
 
         except Exception as e:
-            print(f"Error serving net profit data: {e}")
+            logger.error("Error serving net profit data: %s", e)
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/api/evidence/<company_symbol>/quarter_mapping")
+    @app.route("/api/evidence/<company_symbol>/quarter_mapping", methods=["GET"])
     def get_quarter_evidence_mapping(company_symbol):
         """
         Get evidence mapping for a specific company showing which screenshots correspond to which quarter references
@@ -1880,12 +1919,12 @@ def create_app():
                 # Q1 2025: current quarter = Q1 2025, previous quarter = Annual 2024
                 mapping_info["evidence_mapping"] = {
                     "current_quarter": {
-                        "reference": "Q1 2025",
+                        "reference": _REF_Q1_2025,
                         "screenshot_pattern": f"{company_symbol}_*_q1_2025_evidence.png",
                         "description": "الأرباح المبقاة للربع الحالي (2025Q1)",
                     },
                     "previous_quarter": {
-                        "reference": "Annual 2024",
+                        "reference": _REF_ANNUAL_2024,
                         "screenshot_pattern": f"{company_symbol}_*_annual_2024_evidence.png",
                         "description": "الأرباح المبقاة للربع السابق (2024Q4) - Annual Statement",
                     },
@@ -1893,12 +1932,12 @@ def create_app():
             elif quarter == "Q2_2025":
                 mapping_info["evidence_mapping"] = {
                     "current_quarter": {
-                        "reference": "Q2 2025",
+                        "reference": _REF_Q2_2025,
                         "screenshot_pattern": f"{company_symbol}_*_q2_2025_evidence.png",
                         "description": "الأرباح المبقاة للربع الحالي (2025Q2)",
                     },
                     "previous_quarter": {
-                        "reference": "Q1 2025",
+                        "reference": _REF_Q1_2025,
                         "screenshot_pattern": f"{company_symbol}_*_q1_2025_evidence.png",
                         "description": "الأرباح المبقاة للربع السابق (2025Q1)",
                     },
@@ -1906,12 +1945,12 @@ def create_app():
             elif quarter == "Q3_2025":
                 mapping_info["evidence_mapping"] = {
                     "current_quarter": {
-                        "reference": "Q3 2025",
+                        "reference": _REF_Q3_2025,
                         "screenshot_pattern": f"{company_symbol}_*_q3_2025_evidence.png",
                         "description": "الأرباح المبقاة للربع الحالي (2025Q3)",
                     },
                     "previous_quarter": {
-                        "reference": "Q2 2025",
+                        "reference": _REF_Q2_2025,
                         "screenshot_pattern": f"{company_symbol}_*_q2_2025_evidence.png",
                         "description": "الأرباح المبقاة للربع السابق (2025Q2)",
                     },
@@ -1919,12 +1958,12 @@ def create_app():
             elif quarter == "Q4_2025":
                 mapping_info["evidence_mapping"] = {
                     "current_quarter": {
-                        "reference": "Q4 2025",
+                        "reference": _REF_Q4_2025,
                         "screenshot_pattern": f"{company_symbol}_*_q4_2025_evidence.png",
                         "description": "الأرباح المبقاة للربع الحالي (2025Q4)",
                     },
                     "previous_quarter": {
-                        "reference": "Q3 2025",
+                        "reference": _REF_Q3_2025,
                         "screenshot_pattern": f"{company_symbol}_*_q3_2025_evidence.png",
                         "description": "الأرباح المبقاة للربع السابق (2025Q3)",
                     },
@@ -1932,7 +1971,7 @@ def create_app():
             elif quarter == "Annual_2024":
                 mapping_info["evidence_mapping"] = {
                     "current_quarter": {
-                        "reference": "Annual 2024",
+                        "reference": _REF_ANNUAL_2024,
                         "screenshot_pattern": f"{company_symbol}_*_annual_2024_evidence.png",
                         "description": "الأرباح المبقاة للربع السابق (2024Q4) - Annual Statement",
                     },
@@ -1950,6 +1989,8 @@ def create_app():
 
             # Check which screenshots actually exist
             for quarter_type, info in mapping_info["evidence_mapping"].items():
+                if not isinstance(info, dict) or "screenshot_pattern" not in info:
+                    continue
                 pattern = info["screenshot_pattern"]
                 screenshot_files = list(SCREENSHOTS_DIR.glob(pattern))
                 info["screenshots_found"] = [f.name for f in screenshot_files]
@@ -1963,10 +2004,14 @@ def create_app():
             return jsonify(mapping_info)
 
         except Exception as e:
-            logger.error(f"Error getting quarter mapping for {company_symbol}: {e}")
+            logger.error(
+                "Error getting quarter mapping for %s: %s",
+                _safe_log_symbol(company_symbol),
+                e,
+            )
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
 
-    @app.route("/api/evidence/<company_symbol>/previous_quarter")
+    @app.route("/api/evidence/<company_symbol>/previous_quarter", methods=["GET"])
     def get_previous_quarter_evidence(company_symbol):
         """
         Get evidence for the previous quarter reference (especially useful for Q1 where previous = Annual)
@@ -1977,8 +2022,7 @@ def create_app():
 
             # Determine what the "previous quarter" should be
             previous_quarter_pattern = ""
-            if quarter == "Q1_2025":
-                # Q1 2025 previous quarter is Annual 2024
+            if quarter in ("Q1_2025", "Annual_2024"):
                 previous_quarter_pattern = (
                     f"{company_symbol}_*_annual_2024_evidence.png"
                 )
@@ -1987,21 +2031,13 @@ def create_app():
                 )
             elif quarter == "Q2_2025":
                 previous_quarter_pattern = f"{company_symbol}_*_q1_2025_evidence.png"
-                previous_quarter_description = "Q1 2025"
+                previous_quarter_description = _REF_Q1_2025
             elif quarter == "Q3_2025":
                 previous_quarter_pattern = f"{company_symbol}_*_q2_2025_evidence.png"
-                previous_quarter_description = "Q2 2025"
+                previous_quarter_description = _REF_Q2_2025
             elif quarter == "Q4_2025":
                 previous_quarter_pattern = f"{company_symbol}_*_q3_2025_evidence.png"
-                previous_quarter_description = "Q3 2025"
-            elif quarter == "Annual_2024":
-                # Direct request for Annual 2024 evidence
-                previous_quarter_pattern = (
-                    f"{company_symbol}_*_annual_2024_evidence.png"
-                )
-                previous_quarter_description = (
-                    "Annual 2024 (الأرباح المبقاة للربع السابق)"
-                )
+                previous_quarter_description = _REF_Q3_2025
             else:
                 # Fallback
                 previous_quarter_pattern = f"{company_symbol}_*_evidence.png"
@@ -2038,7 +2074,9 @@ def create_app():
 
         except Exception as e:
             logger.error(
-                f"Error getting previous quarter evidence for {company_symbol}: {e}"
+                "Error getting previous quarter evidence for %s: %s",
+                _safe_log_symbol(company_symbol),
+                e,
             )
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
 

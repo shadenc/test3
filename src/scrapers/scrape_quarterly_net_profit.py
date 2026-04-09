@@ -712,7 +712,7 @@ async def scrape_quarterly_net_profit(page: Page, symbol: str) -> Optional[Dict]
         quarters = []
         for date in quarterly_dates:
             try:
-                year, month, day = date.split("-")
+                year, month, _ = date.split("-")
                 month = int(month)
                 if month <= 3:
                     quarters.append(f"Q1 {year}")

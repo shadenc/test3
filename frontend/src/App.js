@@ -33,6 +33,7 @@ import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import MenuItem from '@mui/material/MenuItem';
 import Add from '@mui/icons-material/Add';
 import LinearProgress from '@mui/material/LinearProgress';
+import PropTypes from 'prop-types';
 
 // API URL configuration - supports both localhost and production
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5003';
@@ -390,6 +391,15 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
       </Box>
     </Modal>
   );
+};
+
+EvidenceModal.propTypes = {
+  open: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  evidenceData: PropTypes.object,
+  loading: PropTypes.bool,
+  error: PropTypes.string,
+  onDataUpdate: PropTypes.func,
 };
 
 function App() {
@@ -1225,7 +1235,7 @@ function App() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               sx={{ bgcolor: 'white' }}
-              inputProps={{ style: { textAlign: 'right' } }}
+              slotProps={{ htmlInput: { style: { textAlign: 'right' } } }}
             />
           </Box>
           {/* Reset button in the left corner */}

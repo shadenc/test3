@@ -69,22 +69,24 @@ class EvidenceScreenshotGenerator:
                     if areas:
                         doc.close()
                         logger.info(
-                            f"Found value '{variant}' in {pdf_path} page {page_num + 1}"
+                            "Found match in %s page %s",
+                            Path(pdf_path).name,
+                            page_num + 1,
                         )
                         return (page_num, areas[0])  # Return first match
 
             doc.close()
             logger.warning(
-                f"Could not find any variant of '{search_value}' in {pdf_path}"
+                "Could not find search value in %s", Path(pdf_path).name
             )
             return None
 
         except Exception as e:
-            logger.error(f"Error searching PDF {pdf_path}: {e}")
+            logger.error("Error searching PDF %s: %s", Path(pdf_path).name, e)
             return None
 
     def generate_highlight_screenshot(
-        self, pdf_path: str, search_value: str, company_symbol: str
+        self, pdf_path: str, search_value: str
     ) -> Optional[str]:
         """
         Generate a highlighted screenshot showing where the value was found
@@ -94,7 +96,9 @@ class EvidenceScreenshotGenerator:
             # Find the value location
             result = self.find_value_in_pdf(pdf_path, search_value)
             if not result:
-                logger.warning(f"Could not find value {search_value} in {pdf_path}")
+                logger.warning(
+                    "Could not find value in %s", Path(pdf_path).name
+                )
                 return None
             page_num, rect = result
             # Open PDF and get the page
@@ -179,7 +183,7 @@ class EvidenceScreenshotGenerator:
                     continue
 
                 screenshot_path = self.generate_highlight_screenshot(
-                    pdf_path, value, company_symbol
+                    pdf_path, value
                 )
 
                 if screenshot_path:

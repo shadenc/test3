@@ -31,7 +31,6 @@ import MenuIcon from '@mui/icons-material/Menu';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import MenuItem from '@mui/material/MenuItem';
-import EditIcon from '@mui/icons-material/Edit';
 import Add from '@mui/icons-material/Add';
 import LinearProgress from '@mui/material/LinearProgress';
 
@@ -146,7 +145,6 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
   const [correctionValue, setCorrectionValue] = useState("");
   const [correctionFeedback, setCorrectionFeedback] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [updateSuccess, setUpdateSuccess] = useState(false);
 
   return (
     <Modal
@@ -287,15 +285,6 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
               </Box>
             )}
 
-            {/* Success Message */}
-            {updateSuccess && (
-              <Box sx={{ mb: 3 }}>
-                <Alert severity="success" sx={{ borderRadius: 2 }}>
-                  تم تحديث القيمة بنجاح! سيتم تحديث البيانات في الجدول الرئيسي.
-                </Alert>
-              </Box>
-            )}
-
             {/* Raw Text Context */}
             {evidenceData.context && (
               <Box>
@@ -396,273 +385,6 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
   );
 };
 
-// Edit Value Modal Component
-const EditValueModal = ({ open, onClose, editData, onSave, loading }) => {
-  const [newValue, setNewValue] = useState("");
-  const [feedback, setFeedback] = useState("");
-
-  // Update local state when editData changes
-  useEffect(() => {
-    if (editData) {
-      setNewValue(editData.currentValue.toString());
-      setFeedback("");
-    }
-  }, [editData]);
-
-  const handleSave = () => {
-    if (newValue.trim() === "") {
-      alert("يرجى إدخال قيمة صحيحة");
-      return;
-    }
-    onSave(editData.companySymbol, editData.fieldType, parseFloat(newValue), feedback);
-  };
-
-  const getFieldDisplayName = (fieldType) => {
-    const fieldNames = {
-      'previous_quarter': 'الأرباح المبقاة للربع السابق',
-      'current_quarter': 'الأرباح المبقاة للربع الحالي',
-      'flow': 'حجم الزيادة أو النقص في الأرباح المبقاة (التدفق)',
-      'foreign_investor_flow': 'تدفق الأرباح المبقاة للمستثمر الأجنبي',
-      'net_profit_foreign_investor': 'صافي الربح للمستثمر الأجنبي',
-      'distributed_profits_foreign_investor': 'الأرباح الموزعة للمستثمر الأجنبي'
-    };
-    return fieldNames[fieldType] || fieldType;
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      aria-labelledby="edit-modal-title"
-      aria-describedby="edit-modal-description"
-    >
-      <Box sx={{
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: { xs: '95%', md: '500px' },
-        maxHeight: '90vh',
-        bgcolor: 'background.paper',
-        borderRadius: 3,
-        boxShadow: 24,
-        p: 3,
-        overflow: 'auto',
-        direction: 'rtl'
-      }}>
-        {/* Header */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography id="edit-modal-title" variant="h5" component="h2" sx={{ fontWeight: 'bold', color: '#ff9800' }}>
-            تعديل القيمة المستخرجة
-          </Typography>
-          <IconButton onClick={onClose} sx={{ color: '#666' }}>
-            <CloseIcon />
-          </IconButton>
-        </Box>
-
-        {/* Content */}
-        {editData && (
-          <Box>
-            {/* Company Info */}
-            <Box sx={{ mb: 3, p: 2, bgcolor: '#f8f9fa', borderRadius: 2 }}>
-              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1, color: '#1e6641' }}>
-                معلومات الشركة
-              </Typography>
-              <Typography><strong>الرمز:</strong> {editData.companySymbol}</Typography>
-              <Typography><strong>اسم الشركة:</strong> {editData.companyName}</Typography>
-              <Typography><strong>الحقل:</strong> {getFieldDisplayName(editData.fieldType)}</Typography>
-            </Box>
-
-            {/* Current Value */}
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2, color: '#666' }}>
-                القيمة الحالية
-              </Typography>
-              <Typography sx={{ fontSize: '1.2rem', color: '#1e6641', fontWeight: 'bold' }}>
-                {editData.currentValue.toLocaleString('en-US')} SAR
-              </Typography>
-            </Box>
-
-            {/* New Value Input */}
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2, color: '#ff9800' }}>
-                القيمة الجديدة
-              </Typography>
-              <TextField
-                fullWidth
-                type="number"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-                placeholder="أدخل القيمة الصحيحة"
-                sx={{ direction: 'ltr' }}
-                inputProps={{
-                  style: { textAlign: 'right', fontSize: '1.1rem' }
-                }}
-              />
-            </Box>
-
-            {/* Feedback Input */}
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2, color: '#666' }}>
-                ملاحظات (اختياري)
-              </Typography>
-              <TextField
-                fullWidth
-                multiline
-                rows={3}
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                placeholder="أضف ملاحظات حول التصحيح..."
-                sx={{ direction: 'rtl' }}
-              />
-            </Box>
-
-            {/* Actions */}
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-              <Button 
-                variant="outlined" 
-                onClick={onClose}
-                sx={{ color: '#666', borderColor: '#666' }}
-              >
-                إلغاء
-              </Button>
-              <Button 
-                variant="contained" 
-                onClick={handleSave}
-                disabled={loading || newValue.trim() === ""}
-                sx={{ 
-                  bgcolor: '#ff9800', 
-                  '&:hover': { bgcolor: '#f57c00' },
-                  '&:disabled': { bgcolor: '#ccc' }
-                }}
-              >
-                {loading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : 'حفظ التصحيح'}
-              </Button>
-            </Box>
-          </Box>
-        )}
-      </Box>
-    </Modal>
-  );
-};
-
-// Inline Editable Cell Component
-const InlineEditableCell = ({ value, onSave, fieldType, companySymbol, companyName, initialValue }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(value?.toString() || "");
-  const [saving, setSaving] = useState(false);
-
-  const handleEdit = () => {
-    setIsEditing(true);
-    setEditValue(value?.toString() || "");
-  };
-
-  const handleSave = async () => {
-    if (editValue.trim() === "") return;
-    
-    setSaving(true);
-    try {
-      const response = await fetch(`${API_URL}/api/correct_field_value`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          company_symbol: companySymbol,
-          field_type: fieldType,
-          new_value: parseFloat(editValue),
-          feedback: 'Inline edit'
-        }),
-      });
-      
-      const data = await response.json();
-      if (data.status === 'success') {
-        onSave(parseFloat(editValue));
-        setIsEditing(false);
-      } else {
-        alert('فشل في حفظ التصحيح: ' + (data.message || ''));
-      }
-    } catch (error) {
-      alert('حدث خطأ أثناء حفظ التصحيح: ' + error.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setIsEditing(false);
-    setEditValue(value?.toString() || "");
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleSave();
-    } else if (e.key === 'Escape') {
-      handleCancel();
-    }
-  };
-
-  if (isEditing) {
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <TextField
-          size="small"
-          type="number"
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onKeyDown={handleKeyPress}
-          autoFocus
-          sx={{ 
-            width: '120px',
-            direction: 'ltr',
-            '& .MuiInputBase-input': { 
-              textAlign: 'right',
-              fontSize: '0.9rem',
-              padding: '4px 8px'
-            }
-          }}
-        />
-        <Tooltip title="حفظ التغيير" arrow placement="top">
-          <IconButton 
-            size="small" 
-            onClick={handleSave}
-            disabled={saving}
-            sx={{ color: '#4caf50', '&:hover': { bgcolor: '#e8f5e8' } }}
-          >
-            {saving ? <CircularProgress size={16} /> : '✓'}
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="إلغاء التغيير" arrow placement="top">
-          <IconButton 
-            size="small" 
-            onClick={handleCancel}
-            sx={{ color: '#f44336', '&:hover': { bgcolor: '#ffebee' } }}
-          >
-            ✕
-          </IconButton>
-        </Tooltip>
-      </Box>
-    );
-  }
-
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-      <Typography>{value?.toLocaleString('en-US') || 'لايوجد'}</Typography>
-      <Tooltip title="هل تحتاج لتغيير هذه القيمة؟ انقر هنا للتعديل" arrow placement="top">
-        <IconButton 
-          size="small" 
-          onClick={handleEdit}
-          sx={{
-            color: '#ff9800',
-            opacity: 0.7,
-            '&:hover': { bgcolor: '#fff3e0', opacity: 1 },
-          }}
-        >
-          <EditIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-    </Box>
-  );
-};
-
 function App() {
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
@@ -676,7 +398,6 @@ function App() {
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [snapshotsError, setSnapshotsError] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [snapshotsExpanded, setSnapshotsExpanded] = useState(false);
   const [userExports, setUserExports] = useState([]);
   const [userExportsLoading, setUserExportsLoading] = useState(false);
   const [userExportsError, setUserExportsError] = useState(null);
@@ -693,19 +414,14 @@ function App() {
   // Background jobs state
   const [pdfJobStatus, setPdfJobStatus] = useState({ status: 'idle' });
   const [netJobStatus, setNetJobStatus] = useState({ status: 'idle' });
-  const [isPdfRunning, setIsPdfRunning] = useState(false);
-  const [isNetRunning, setIsNetRunning] = useState(false);
   const [pdfPollId, setPdfPollId] = useState(null);
   const [netPollId, setNetPollId] = useState(null);
   const [pdfProgressOpen, setPdfProgressOpen] = useState(false);
   const [netProgressOpen, setNetProgressOpen] = useState(false);
-  const [pdfPhase, setPdfPhase] = useState('running'); // 'running' | 'finalizing'
-  const [netPhase, setNetPhase] = useState('running'); // 'running' | 'finalizing'
   // Unified update modal state
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [selectPdf, setSelectPdf] = useState(false);
   const [selectNet, setSelectNet] = useState(false);
-  const [chainNetAfterPdf, setChainNetAfterPdf] = useState(false); // kept for compatibility but unused when running both in parallel
   // Combined progress modal when running both (net profit is merged inside PDF downloader — no second browser job)
   const [bothProgressOpen, setBothProgressOpen] = useState(false);
   const [bothIsStopping, setBothIsStopping] = useState(false);
@@ -720,7 +436,6 @@ function App() {
         if (data.status === 'completed' || data.status === 'idle' || data.status === 'blocked_by_waf') {
           clearInterval(id);
           setPdfPollId(null);
-          setIsPdfRunning(false);
           setPdfProgressOpen(false);
           // Trigger dashboard data reload (ensure backend has flushed files)
           setTimeout(() => {
@@ -747,7 +462,6 @@ function App() {
         if (data.status === 'completed' || data.status === 'idle') {
           clearInterval(id);
           setNetPollId(null);
-          setIsNetRunning(false);
           setNetProgressOpen(false);
           // Trigger dashboard data reload (ensure backend has flushed files)
           setTimeout(() => {
@@ -773,22 +487,22 @@ function App() {
 
   // Function to fetch evidence data
   const fetchEvidenceData = async (companySymbol, quarter) => {
-    console.log(`Fetching evidence for ${companySymbol} quarter ${quarter}`);
+    setEvidenceData(null);
+    setEvidenceLoading(true);
+    setEvidenceError(null);
     try {
       const response = await fetch(`${API_URL}/api/extractions/${companySymbol}?quarter=${quarter}`);
       if (response.ok) {
         const data = await response.json();
-        console.log('Evidence data received:', data);
-        console.log('Evidence quarter requested:', quarter);
-        console.log('Evidence quarter in response:', data.evidence?.requested_quarter);
-        console.log('Screenshot path:', data.evidence?.screenshot_path);
         setEvidenceData(data);
         setEvidenceModalOpen(true);
       } else {
-        console.error('Failed to fetch evidence data');
+        setEvidenceError(`تعذر تحميل الأدلة (HTTP ${response.status})`);
       }
     } catch (error) {
-      console.error('Error fetching evidence data:', error);
+      setEvidenceError(error?.message || 'خطأ في الاتصال');
+    } finally {
+      setEvidenceLoading(false);
     }
   };
 
@@ -994,30 +708,6 @@ function App() {
         setUserExportsLoading(false);
       });
   }, []);
-
-  // Function to fetch snapshots (for refreshing after quarterly archive)
-  const fetchSnapshots = () => {
-    console.log('🔄 Manual fetchSnapshots called...');
-    setSnapshotsLoading(true);
-    fetch(`${API_URL}/api/ownership_snapshots`)
-      .then(res => {
-        console.log('📡 Manual snapshots response status:', res.status);
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        return res.json();
-      })
-      .then(data => {
-        console.log('✅ Manual snapshots data received:', data);
-        setSnapshots(data);
-        setSnapshotsLoading(false);
-      })
-      .catch(err => {
-        console.error('❌ Error in manual fetchSnapshots:', err);
-        setSnapshotsError('فشل في تحميل ملفات الفترات السابقة');
-        setSnapshotsLoading(false);
-      });
-  };
 
   // Helper function to determine quarter from date
   const getQuarterFromDate = (dateString) => {
@@ -1281,6 +971,8 @@ function App() {
 
   useEffect(() => {
     fetchData();
+    // Intentional: load once on mount; fetchData is stable for this screen
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1671,7 +1363,6 @@ function App() {
                         const res = await fetch(`${API_URL}/api/run_pdfs_pipeline`, { method: 'POST' });
                         const data = await res.json();
                         if (res.status === 202) {
-                          setIsPdfRunning(true);
                           setPdfJobStatus({ status: 'running' });
                           setPdfProgressOpen(true);
                           startPollPdf();
@@ -1688,7 +1379,6 @@ function App() {
                         const res = await fetch(`${API_URL}/api/run_net_profit_scrape`, { method: 'POST' });
                         const data = await res.json();
                         if (res.status === 202) {
-                          setIsNetRunning(true);
                           setNetJobStatus({ status: 'running' });
                           setNetProgressOpen(true);
                           startPollNet();
@@ -1923,45 +1613,7 @@ function App() {
         error={evidenceError}
         onDataUpdate={fetchData}
       />
-      
-      {/* Edit Value Modal - Commented out since we're using inline editing */}
-      {/* <EditValueModal
-        open={editModalOpen}
-        onClose={() => setEditModalOpen(false)}
-        editData={editData}
-        onSave={async (companySymbol, fieldType, newValue, feedback) => {
-          setEditLoading(true);
-          try {
-            const response = await fetch(`${API_URL}/api/correct_retained_earnings`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                company_symbol: companySymbol,
-                field_type: fieldType,
-                correct_value: newValue,
-                feedback: feedback,
-              }),
-            });
-            const data = await response.json();
-            if (data.status === 'success' && data.updated) {
-              if (typeof globalThis.updateRowAfterCorrection === 'function') {
-                globalThis.updateRowAfterCorrection(data.updated);
-              }
-              setEditModalOpen(false);
-              setEditLoading(false);
-            } else {
-              alert('فشل في حفظ التصحيح: ' + (data.message || ''));
-              setEditLoading(false);
-            }
-          } catch (e) {
-            alert('حدث خطأ أثناء حفظ التصحيح: ' + e.message);
-            setEditModalOpen(false);
-            setEditLoading(false);
-          }
-        }}
-        loading={editLoading}
-      /> */}
-      
+
       {/* Footer */}
       <Box sx={{ textAlign: 'center', color: '#888', py: 2, fontSize: 16, mt: 'auto' }}>
         © {new Date().getFullYear()} مركز الابتكار

@@ -178,8 +178,7 @@ class EvidenceScreenshotGenerator:
             results_path = Path(results_file)
             if not results_path.is_file():
                 logger.warning(
-                    "Evidence screenshots skipped: results file not found: %s",
-                    results_path,
+                    "Evidence screenshots skipped: results file not found",
                 )
                 return []
             # Load results
@@ -193,7 +192,7 @@ class EvidenceScreenshotGenerator:
 
             generated_screenshots = []
 
-            for result in successful_extractions:
+            for record_index, result in enumerate(successful_extractions):
                 company_symbol = result["company_symbol"]
                 pdf_filename = result["pdf_filename"]
                 value = result["value"]
@@ -201,14 +200,14 @@ class EvidenceScreenshotGenerator:
                 pdf_resolved = _safe_pdfs_path(pdf_filename)
                 if pdf_resolved is None:
                     logger.warning(
-                        "Evidence skipped: invalid PDF reference (company_symbol=%s)",
-                        company_symbol,
+                        "Evidence skipped: invalid PDF reference (record_index=%s)",
+                        record_index,
                     )
                     continue
                 if not pdf_resolved.is_file():
                     logger.warning(
-                        "Evidence skipped: PDF missing on disk (company_symbol=%s)",
-                        company_symbol,
+                        "Evidence skipped: PDF missing on disk (record_index=%s)",
+                        record_index,
                     )
                     continue
 

@@ -488,14 +488,14 @@ def main():
             
             # Generate evidence screenshot
             try:
-                print(f"  📸 Generating evidence screenshot...")
+                print("  📸 Generating evidence screenshot...")
                 screenshot_path = evidence_generator.generate_highlight_screenshot(
                     str(pdf_file), result['value'], company_symbol
                 )
                 if screenshot_path:
                     print(f"  ✓ Evidence screenshot saved: {screenshot_path}")
                 else:
-                    print(f"  ⚠️ Failed to generate evidence screenshot")
+                    print("  ⚠️ Failed to generate evidence screenshot")
             except Exception as e:
                 print(f"  ⚠️ Error generating evidence screenshot: {e}")
         else:
@@ -526,13 +526,13 @@ def main():
     
     # Print summary
     print(f"\n{'='*50}")
-    print(f"EXTRACTION SUMMARY")
+    print("EXTRACTION SUMMARY")
     print(f"{'='*50}")
     print(f"Total PDFs processed: {len(pdf_files)}")
     print(f"Successful extractions: {successful_extractions}")
     print(f"Success rate: {successful_extractions/len(pdf_files)*100:.1f}%")
     print(f"Results saved to: {output_file}")
-    print(f"Results also saved to database: data/financial_analysis.db")
+    print("Results also saved to database: data/financial_analysis.db")
     
 if __name__ == "__main__":
     main() 

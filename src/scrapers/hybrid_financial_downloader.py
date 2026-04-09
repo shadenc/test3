@@ -1,10 +1,9 @@
 import asyncio
 import os
-import re
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional
 import random
 
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeoutError
@@ -847,7 +846,7 @@ async def download_all_financial_statements() -> int:
         
         # Summary
         print(f"\n{'='*50}")
-        print(f"📊 DOWNLOAD SUMMARY")
+        print("📊 DOWNLOAD SUMMARY")
         print(f"{'='*50}")
         print(f"✅ Successful: {success_count}")
         print(f"❌ Failed: {failed_count}")

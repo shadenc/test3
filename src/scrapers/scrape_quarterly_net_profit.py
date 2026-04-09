@@ -11,7 +11,7 @@ import os
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeoutError
 
@@ -585,7 +585,7 @@ async def scrape_quarterly_net_profit(page: Page, symbol: str) -> Optional[Dict]
         
         # If we didn't find quarterly data, look for any table with the quarterly dates
         if not statement_of_income_table:
-            print(f"🔍 Looking for any table with quarterly dates...")
+            print("🔍 Looking for any table with quarterly dates...")
             
             for i, table in enumerate(tables):
                 try:
@@ -599,7 +599,7 @@ async def scrape_quarterly_net_profit(page: Page, symbol: str) -> Optional[Dict]
                         print(f"✅ Found table {i} with quarterly dates")
                         break
                         
-                except Exception as e:
+                except Exception:
                     continue
         
         if not statement_of_income_table:
@@ -626,7 +626,7 @@ async def scrape_quarterly_net_profit(page: Page, symbol: str) -> Optional[Dict]
                 continue
         
         if not quarterly_dates:
-            print(f"❌ No quarterly dates found in headers, checking table body...")
+            print("❌ No quarterly dates found in headers, checking table body...")
             
             # Try to find dates in the first row of table body
             body_rows = await statement_of_income_table.query_selector_all("tbody tr")
@@ -929,7 +929,7 @@ async def scrape_all_companies_net_profit() -> int:
         
         # Summary
         print(f"\n{'='*60}")
-        print(f"📊 SCRAPING SUMMARY")
+        print("📊 SCRAPING SUMMARY")
         print(f"{'='*60}")
         print(f"✅ Successful: {success_count}")
         print(f"❌ Failed: {failed_count}")

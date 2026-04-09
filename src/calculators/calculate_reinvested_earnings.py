@@ -7,8 +7,6 @@ Flow = Retained Earnings (Current Q) - Retained Earnings (Previous Q)
 import json
 import math
 import pandas as pd
-import re
-from datetime import datetime
 from typing import Dict, List, Optional
 
 FLOW_CSV_PATH = "data/results/retained_earnings_flow.csv"
@@ -394,7 +392,7 @@ def main():
                 ), axis=1
             )
             
-            print(f"✅ Added net profit calculations for foreign investors")
+            print("✅ Added net profit calculations for foreign investors")
             
         except FileNotFoundError:
             print("⚠️ Warning: quarterly_net_profit.json not found, skipping net profit calculations")
@@ -409,7 +407,7 @@ def main():
         final_results = merged[['company_symbol', 'company_name', 'quarter', 'year', 'current_value', 'previous_value', 'flow', 'flow_formula', 'foreign_ownership', 'max_allowed', 'investor_limit', 'reinvested_earnings_flow', 'net_profit_foreign_investor', 'distributed_profits_foreign_investor']].copy()
         
         print(f"✅ Calculated flows for {len(final_results)} company-quarters")
-        print(f"✅ Added foreign investor flow calculations")
+        print("✅ Added foreign investor flow calculations")
         
         # Save to CSV
         final_results.to_csv(FLOW_CSV_PATH, index=False, encoding="utf-8")

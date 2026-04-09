@@ -288,7 +288,6 @@ def create_app():
     RESULTS_FILE = PROJECT_ROOT / RESULTS_JSON_RELPATH
     METADATA_FILE = SCREENSHOTS_DIR / "evidence_metadata.json"
     CSV_FILE = PROJECT_ROOT / REINVESTED_CSV_RELPATH
-    FLOW_CSV_FILE = PROJECT_ROOT / FLOW_CSV_RELPATH
 
     def playwright_busy_response():
         """409 when PDF downloader or net-profit scraper already holds the Playwright lock."""
@@ -595,7 +594,6 @@ def create_app():
             
             # Add screenshot URL if available
             if evidence_data:
-                screenshot_filename = f"{company_symbol}_evidence.png"
                 response['screenshot_url'] = f"/api/evidence/{company_symbol}.png"
             
             return jsonify(response)
@@ -1088,7 +1086,7 @@ def create_app():
             })
             with open(corrections_log, 'w', encoding='utf-8') as f:
                 json.dump(log, f, ensure_ascii=False, indent=2)
-        except Exception as e:
+        except Exception:
             pass  # Don't block on logging
 
         # Trigger recalculation
@@ -1179,7 +1177,7 @@ def create_app():
             
             # Save the updated CSV
             df.to_csv(csv_path, index=False, encoding='utf-8')
-            logger.info(f"CSV updated and saved successfully")
+            logger.info("CSV updated and saved successfully")
             
             # Log the correction
             corrections_log = PROJECT_ROOT / "data/results/corrections_log.json"
@@ -1314,20 +1312,12 @@ def create_app():
                     # Determine quarter from custom date
                     if custom_month in [1, 2, 3]:
                         custom_quarter = "Q1"
-                        previous_quarter = "Q4"
-                        previous_year = custom_year - 1
                     elif custom_month in [4, 5, 6]:
                         custom_quarter = "Q2"
-                        previous_quarter = "Q1"
-                        previous_year = custom_year
                     elif custom_month in [7, 8, 9]:
                         custom_quarter = "Q3"
-                        previous_quarter = "Q2"
-                        previous_year = custom_year
                     else:  # 10, 11, 12
                         custom_quarter = "Q4"
-                        previous_quarter = "Q3"
-                        previous_year = custom_year
                     
                     # Override quarter filter with custom date quarter
                     quarter_filter = custom_quarter
@@ -1374,17 +1364,6 @@ def create_app():
                     current_quarter = "2025Q3"
                 elif quarter_filter == "Q4":
                     current_quarter = "2025Q4"
-                
-                # Add evidence mapping information for debugging
-                evidence_note = ""
-                if quarter_filter == "Q1":
-                    evidence_note = "Note: Previous quarter (2024Q4) refers to Annual 2024 statement screenshot"
-                elif quarter_filter == "Q2":
-                    evidence_note = "Note: Previous quarter (2025Q1) refers to Q1 2025 statement screenshot"
-                elif quarter_filter == "Q3":
-                    evidence_note = "Note: Previous quarter (2025Q2) refers to Q2 2025 statement screenshot"
-                elif quarter_filter == "Q4":
-                    evidence_note = "Note: Previous quarter (2025Q3) refers to Q3 2025 statement screenshot"
                 
                 # Handle values properly - show 0 instead of "لايوجد" when it's actually 0
                 def format_value(value):
@@ -1457,8 +1436,8 @@ def create_app():
             if ownership_script.exists():
                 try:
                     logger.info("Attempting to run ownership scraper...")
-                    result = subprocess.run(['python', str(ownership_script)], 
-                                         check=True, capture_output=True, text=True, timeout=300)
+                    subprocess.run(['python', str(ownership_script)],
+                                   check=True, capture_output=True, text=True, timeout=300)
                     logger.info(MSG_OWNERSHIP_UPDATED_OK)
                     return jsonify({
                         "status": "success", 

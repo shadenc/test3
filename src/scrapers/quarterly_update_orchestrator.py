@@ -10,10 +10,9 @@ import json
 import logging
 from datetime import datetime, date
 from pathlib import Path
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Dict, List, Set, Tuple
 import random
 
-from playwright.async_api import async_playwright, Browser, Page
 
 # Import our existing scrapers
 from ownership import TadawulOwnershipScraper

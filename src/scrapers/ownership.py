@@ -16,11 +16,9 @@ Example:
 import json
 import csv
 import logging
-from datetime import date
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Union
+from typing import Optional
 import aiohttp
-from bs4 import BeautifulSoup
 
 from playwright.async_api import async_playwright, TimeoutError
 from playwright.sync_api import sync_playwright

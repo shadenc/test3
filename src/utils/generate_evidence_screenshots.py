@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -188,17 +188,17 @@ def main():
     screenshots = generator.generate_all_evidence_screenshots()
     
     print(f"\n{'='*50}")
-    print(f"EVIDENCE SCREENSHOT GENERATION SUMMARY")
+    print("EVIDENCE SCREENSHOT GENERATION SUMMARY")
     print(f"{'='*50}")
     print(f"Generated screenshots: {len(screenshots)}")
     
     if screenshots:
-        print(f"\nGenerated evidence for:")
+        print("\nGenerated evidence for:")
         for screenshot in screenshots:
             print(f"  {screenshot['company_symbol']}: {screenshot['value']} -> {screenshot['screenshot_path']}")
     
-    print(f"\nScreenshots saved to: output/screenshots/")
-    print(f"Metadata saved to: output/screenshots/evidence_metadata.json")
+    print("\nScreenshots saved to: output/screenshots/")
+    print("Metadata saved to: output/screenshots/evidence_metadata.json")
 
 if __name__ == "__main__":
     main() 

@@ -474,10 +474,7 @@ async def get_all_financial_reports(
     If skip_profile_navigation is True, the caller must have already opened the company profile (single shared visit with net-profit scrape).
     """
     if not skip_profile_navigation:
-        try:
-            ok = await navigate_to_company_profile(page, symbol)
-        except TadawulAccessDeniedError:
-            raise
+        ok = await navigate_to_company_profile(page, symbol)
         if not ok:
             return []
         print("On company profile page, waiting for content...")
@@ -700,10 +697,7 @@ async def process_company_with_retry(
             page = await browser.new_page()
             await page.mouse.move(random.randint(100, 500), random.randint(100, 300))
             await asyncio.sleep(random.uniform(0.5, 1.5))
-            try:
-                ok_profile = await navigate_to_company_profile(page, symbol)
-            except TadawulAccessDeniedError:
-                raise
+            ok_profile = await navigate_to_company_profile(page, symbol)
             if not ok_profile:
                 await page.close()
                 if _pdf_stop_requested():
@@ -826,7 +820,7 @@ async def download_all_financial_statements() -> int:
     waf_aborted = False
 
     # Setup browser with stealth configuration
-    playwright, browser, context = await setup_stealth_browser()
+    playwright, browser, _ = await setup_stealth_browser()
 
     try:
         # progress reporting

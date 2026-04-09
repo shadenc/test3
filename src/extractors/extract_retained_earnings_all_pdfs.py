@@ -104,7 +104,7 @@ class EvidenceScreenshotGenerator:
             logger.error(f"Highlighting error: {e}")
             return page
 
-    def _highlight_units_on_page(self, page, page_text: str) -> None:
+    def _highlight_units_on_page(self, page, _page_text: str) -> None:
         """Attempt to find and highlight unit declaration text on the page.
         Draw a second rectangle (green) around the first matching unit phrase.
         """

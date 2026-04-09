@@ -191,7 +191,7 @@ class QuarterlyUpdateOrchestrator:
         logger.info("🔄 Updating financial PDFs...")
 
         # Setup browser
-        playwright, browser, context = await setup_stealth_browser()
+        playwright, browser, _ = await setup_stealth_browser()
 
         results = {}
 
@@ -254,7 +254,7 @@ class QuarterlyUpdateOrchestrator:
         logger.info("🔄 Updating net profit data...")
 
         # Setup browser
-        playwright, browser, context = await setup_net_profit_browser()
+        playwright, browser, _ = await setup_net_profit_browser()
 
         results = {}
 
@@ -346,7 +346,7 @@ class QuarterlyUpdateOrchestrator:
 
         logger.info(f"💾 Updated net profit data for {symbol}")
 
-    async def run_quarterly_update(self, force_full_update: bool = False) -> Dict:
+    async def run_quarterly_update(self, _force_full_update: bool = False) -> Dict:
         """Run the complete quarterly update process."""
         logger.info("🚀 Starting Quarterly Update Process")
         logger.info(f"📅 Current: {self.current_year} {self.current_quarter}")

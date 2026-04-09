@@ -918,7 +918,7 @@ async def scrape_all_companies_net_profit() -> int:
     waf_aborted = False
 
     # Setup browser
-    playwright, browser, context = await setup_stealth_browser()
+    playwright, browser, _ = await setup_stealth_browser()
 
     try:
         success_count = 0

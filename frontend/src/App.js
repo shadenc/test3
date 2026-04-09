@@ -45,6 +45,37 @@ const devLog =
       }
     : () => {};
 
+/** DataGrid column headers (avoid nested ternaries; Sonar S3358). */
+function previousQuarterHeaderLabel(qf) {
+  switch (qf) {
+    case 'Q1':
+      return '2024Q4';
+    case 'Q2':
+      return '2025Q1';
+    case 'Q3':
+      return '2025Q2';
+    case 'Q4':
+      return '2025Q3';
+    default:
+      return '2024Q4';
+  }
+}
+
+function currentQuarterHeaderLabel(qf) {
+  switch (qf) {
+    case 'Q1':
+      return '2025Q1';
+    case 'Q2':
+      return '2025Q2';
+    case 'Q3':
+      return '2025Q3';
+    case 'Q4':
+      return '2025Q4';
+    default:
+      return '2025Q1';
+  }
+}
+
 /** Parse retained-earnings flow CSV; extracted to limit callback nesting (Sonar). */
 function parseQuarterlyFlowCsvText(csvText) {
   return new Promise((resolve) => {
@@ -203,7 +234,7 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
         {evidenceData && !loading && (
           <>
             {/* Screenshot */}
-            {evidenceData.evidence && evidenceData.evidence.has_evidence && (
+            {evidenceData.evidence?.has_evidence && (
               <Box sx={{ mb: 4 }}>
                 <Box sx={{ 
                   display: 'flex', 
@@ -251,11 +282,18 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
                     const raw = Number(rawStr.replace(/,/g, ''));
                     const mult = Number(evidenceData.applied_multiplier || 1);
                     const unit = String(evidenceData.unit_detected || 'SAR');
-                    const unitLabel = unit === 'million_SAR' ? 'بالملايين' : unit === 'thousand_SAR' ? 'بالآلاف' : unit === 'SAR' ? 'بالريال السعودي' : 'غير محدد';
+                    let unitLabel = 'غير محدد';
+                    if (unit === 'million_SAR') unitLabel = 'بالملايين';
+                    else if (unit === 'thousand_SAR') unitLabel = 'بالآلاف';
+                    else if (unit === 'SAR') unitLabel = 'بالريال السعودي';
                     if (!raw || mult === 1) {
+                      const directSar =
+                        unit === 'SAR' || mult === 1
+                          ? 'القيم بالريال السعودي مباشرة (بدون تحويل).'
+                          : `الوحدة: ${unitLabel}`;
                       return (
                         <Typography variant="body2" sx={{ color: '#4d4d4d' }}>
-                          {unit === 'SAR' || mult === 1 ? 'القيم بالريال السعودي مباشرة (بدون تحويل).' : `الوحدة: ${unitLabel}`}
+                          {directSar}
                         </Typography>
                       );
                     }
@@ -314,7 +352,7 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
                 </Box>
               </Box>
             )}
-            {evidenceData && evidenceData.context && !loading && (
+            {evidenceData?.context && !loading && (
               <Box sx={{ mt: 2, textAlign: 'left' }}>
                 <Tooltip title="تعديل النتيجة" arrow>
                   <IconButton
@@ -368,7 +406,9 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
                               onDataUpdate();
                             }
                           }
-                        } catch (e) {}
+                        } catch (e) {
+                          devLog('correct_retained_earnings failed', e);
+                        }
                         setVerifyMode(null);
                         // Close the modal after save
                         if (typeof onClose === 'function') onClose();
@@ -464,7 +504,9 @@ function App() {
             onComplete();
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        devLog('pdf status poll', e);
+      }
     }, 1500);
     setPdfPollId(id);
   };
@@ -490,7 +532,9 @@ function App() {
             onComplete();
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        devLog('net profit status poll', e);
+      }
     }, 1500);
     setNetPollId(id);
   };
@@ -742,6 +786,7 @@ function App() {
       
       return '';
     } catch (error) {
+      devLog('getQuarterFromDate', error);
       return '';
     }
   };
@@ -755,7 +800,7 @@ function App() {
     { field: "investor_limit", headerName: "ملكية المستثمر الاستراتيجي الأجنبي", width: 220, align: "right", headerAlign: "right" },
     { 
       field: "previous_quarter_value", 
-      headerName: `الأرباح المبقاة للربع السابق (${quarterFilter === "Q1" ? "2024Q4" : quarterFilter === "Q2" ? "2025Q1" : quarterFilter === "Q3" ? "2025Q2" : quarterFilter === "Q4" ? "2025Q3" : "2024Q4"})`, 
+      headerName: `الأرباح المبقاة للربع السابق (${previousQuarterHeaderLabel(quarterFilter)})`, 
       width: 250, 
       align: "right", 
       headerAlign: "right",
@@ -764,8 +809,8 @@ function App() {
         if (!value || value === "" || value === "null" || value === "undefined") {
           return "لايوجد";
         }
-        const numValue = parseFloat(value);
-        if (!isNaN(numValue)) {
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
           return (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography>{numValue.toLocaleString('en-US')}</Typography>
@@ -807,7 +852,7 @@ function App() {
     },
     { 
       field: "current_quarter_value", 
-      headerName: `الأرباح المبقاة للربع الحالي (${quarterFilter === "Q1" ? "2025Q1" : quarterFilter === "Q2" ? "2025Q2" : quarterFilter === "Q3" ? "2025Q3" : quarterFilter === "Q4" ? "2025Q4" : "2025Q1"})`, 
+      headerName: `الأرباح المبقاة للربع الحالي (${currentQuarterHeaderLabel(quarterFilter)})`, 
       width: 250, 
       align: "right", 
       headerAlign: "right",
@@ -816,8 +861,8 @@ function App() {
         if (!value || value === "" || value === "null" || value === "undefined") {
           return "لايوجد";
         }
-        const numValue = parseFloat(value);
-        if (!isNaN(numValue)) {
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
           return (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography>{numValue.toLocaleString('en-US')}</Typography>
@@ -869,8 +914,8 @@ function App() {
         if (!value || value === "" || value === "null" || value === "undefined") {
           return "لايوجد";
         }
-        const numValue = parseFloat(value);
-        if (!isNaN(numValue)) {
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
           const isPositive = numValue >= 0;
           const color = isPositive ? '#2e7d32' : '#d32f2f';
           const sign = numValue === 0 ? '' : (isPositive ? '+' : '');
@@ -894,8 +939,8 @@ function App() {
         if (!value || value === "" || value === "null" || value === "undefined") {
           return "لايوجد";
         }
-        const numValue = parseFloat(value);
-        if (!isNaN(numValue)) {
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
           const isPositive = numValue >= 0;
           const color = isPositive ? '#2e7d32' : '#d32f2f';
           const sign = numValue === 0 ? '' : (isPositive ? '+' : '');
@@ -918,7 +963,7 @@ function App() {
         const companySymbol = params.row.company_symbol;
         const companyNetProfit = netProfitData[companySymbol];
         
-        if (companyNetProfit && companyNetProfit.quarterly_net_profit) {
+        if (companyNetProfit?.quarterly_net_profit) {
           // Map quarter filter to 2025 data
           let quarterKey;
           if (quarterFilter === "Q1") quarterKey = "Q1 2025";
@@ -945,8 +990,8 @@ function App() {
         if (!value || value === "" || value === "null" || value === "undefined") {
           return "لايوجد";
         }
-        const numValue = parseFloat(value);
-        if (!isNaN(numValue)) {
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
           const isPositive = numValue >= 0;
           const color = isPositive ? '#2e7d32' : '#d32f2f';
           const sign = numValue === 0 ? '' : (isPositive ? '+' : '');
@@ -970,8 +1015,8 @@ function App() {
         if (!value || value === "" || value === "null" || value === "undefined") {
           return "لايوجد";
         }
-        const numValue = parseFloat(value);
-        if (!isNaN(numValue)) {
+        const numValue = Number.parseFloat(value);
+        if (!Number.isNaN(numValue)) {
           const isPositive = numValue >= 0;
           const color = isPositive ? '#2e7d32' : '#d32f2f';
           const sign = numValue === 0 ? '' : (isPositive ? '+' : '');
@@ -1028,8 +1073,8 @@ function App() {
     if (search) {
       const searchLower = search.toLowerCase();
       filtered = filtered.filter((row) =>
-        (row.symbol && row.symbol.toString().toLowerCase().includes(searchLower)) ||
-        (row.company_name && row.company_name.toLowerCase().includes(searchLower))
+        (row.symbol?.toString().toLowerCase().includes(searchLower)) ||
+        (row.company_name?.toLowerCase().includes(searchLower))
       );
     }
     
@@ -1047,7 +1092,9 @@ function App() {
     try {
       await fetch(`${API_URL}/api/user_exports/${fileToDelete.filename}`, { method: 'DELETE' });
       setUserExports((prev) => prev.filter(f => f.filename !== fileToDelete.filename));
-    } catch (e) {}
+    } catch (e) {
+      devLog('delete user export', e);
+    }
     setDeleteDialogOpen(false);
     setFileToDelete(null);
   };
@@ -1345,7 +1392,7 @@ function App() {
                   {pdfJobStatus?.current_symbol ? ` — الحالي: ${pdfJobStatus.current_symbol}` : ''}
                 </Typography>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST' }); } catch (e) {} }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
+                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST' }); } catch (e) { devLog('pdfs stop', e); } }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
                 </Box>
               </Box>
             </Modal>
@@ -1357,10 +1404,12 @@ function App() {
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                     <input type="checkbox" checked={selectPdf} onChange={(e) => setSelectPdf(e.target.checked)} />
+                    {' '}
                     تحديث الأرباح المبقاة (تنزيل واستخراج)
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                     <input type="checkbox" checked={selectNet} onChange={(e) => setSelectNet(e.target.checked)} />
+                    {' '}
                     تحديث صافي الربح
                   </label>
                   <Typography variant="caption" sx={{ color: '#666' }}>
@@ -1462,8 +1511,8 @@ function App() {
                     variant="outlined"
                     onClick={async () => {
                       setBothIsStopping(true);
-                      try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST' }); } catch (e) {}
-                      try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST' }); } catch (e) {}
+                      try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST' }); } catch (e) { devLog('both stop pdfs', e); }
+                      try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST' }); } catch (e) { devLog('both stop net', e); }
                     }}
                     disabled={bothIsStopping}
                     sx={{ color: bothIsStopping ? '#999' : '#b71c1c', borderColor: bothIsStopping ? '#ccc' : '#b71c1c' }}
@@ -1483,7 +1532,7 @@ function App() {
                   {netJobStatus?.current_symbol ? ` — الحالي: ${netJobStatus.current_symbol}` : ''}
                 </Typography>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST' }); } catch (e) {} }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
+                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST' }); } catch (e) { devLog('net profit stop', e); } }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
                 </Box>
               </Box>
             </Modal>
@@ -1520,6 +1569,7 @@ function App() {
         {/* DataGrid */}
         <Box sx={{ 
           width: '100%', 
+          height: 560,
           overflow: 'auto',
           border: '1px solid #e0e0e0',
           borderRadius: 1,
@@ -1532,7 +1582,6 @@ function App() {
             pageSize={20}
             rowsPerPageOptions={[20, 50, 100]}
             disableSelectionOnClick
-            autoHeight
             componentsProps={{
               toolbar: {
                 showQuickFilter: true,
@@ -1652,7 +1701,7 @@ function App() {
         anchor="left"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        PaperProps={{ sx: { width: 340, bgcolor: '#f8f9fa', borderTopRightRadius: 16, borderBottomRightRadius: 16 } }}
+        slotProps={{ paper: { sx: { width: 340, bgcolor: '#f8f9fa', borderTopRightRadius: 16, borderBottomRightRadius: 16 } } }}
       >
         <Box
           sx={{
@@ -1730,18 +1779,20 @@ function App() {
           </Box>
         </Box>
         <List>
-          {userExportsLoading ? (
+          {userExportsLoading && (
             <ListItem sx={{ justifyContent: 'center' }}><CircularProgress size={22} sx={{ color: '#1e6641' }} /></ListItem>
-          ) : userExportsError ? (
+          )}
+          {!userExportsLoading && userExportsError && (
             <ListItem><Alert severity="error">{userExportsError}</Alert></ListItem>
-          ) : userExports.length === 0 ? (
+          )}
+          {!userExportsLoading && !userExportsError && userExports.length === 0 && (
             <ListItem sx={{ justifyContent: 'center', alignItems: 'center', minHeight: 80, width: '100%' }}>
               <Typography sx={{ color: '#b0b7be', fontSize: 17, textAlign: 'center', width: '100%' }}>
                 لا توجد ملفات محفوظة بعد
               </Typography>
             </ListItem>
-          ) : (
-            userExports.map((file, idx) => (
+          )}
+          {!userExportsLoading && !userExportsError && userExports.length > 0 && userExports.map((file, idx) => (
               <ListItem
                 key={idx}
                 tabIndex={0}
@@ -1831,8 +1882,7 @@ function App() {
                   </IconButton>
                 </Tooltip>
               </ListItem>
-            ))
-          )}
+            ))}
         </List>
         {/* Divider between sections */}
         <Box sx={{ mt: 2, pb: 0, px: 0 }}>
@@ -2380,14 +2430,16 @@ function App() {
         
         {/* Quarterly Archives List */}
         <List>
-          {snapshotsLoading ? (
+          {snapshotsLoading && (
             <ListItem sx={{ justifyContent: 'center' }}><CircularProgress size={22} sx={{ color: '#1e6641' }} /></ListItem>
-          ) : snapshotsError ? (
+          )}
+          {!snapshotsLoading && snapshotsError && (
             <ListItem><Alert severity="error">{snapshotsError}</Alert></ListItem>
-          ) : snapshots.length === 0 ? (
+          )}
+          {!snapshotsLoading && !snapshotsError && snapshots.length === 0 && (
             <ListItem sx={{ justifyContent: 'center', color: '#888' }}>لا توجد ملفات محفوظة بعد</ListItem>
-          ) : (
-            snapshots.map((snap, idx) => (
+          )}
+          {!snapshotsLoading && !snapshotsError && snapshots.length > 0 && snapshots.map((snap, idx) => (
               <ListItem key={idx} sx={{ pl: 2, pr: 2, py: 1, borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center' }}>
                 <Typography sx={{ fontWeight: 500, color: '#1e6641', flexGrow: 1, fontSize: 16 }}>
                   {`${snap.year} ${snap.quarter.replace('Q', 'Q')} — ${snap.snapshot_date}`}
@@ -2407,8 +2459,7 @@ function App() {
                   </Button>
                 </Tooltip>
               </ListItem>
-            ))
-          )}
+            ))}
         </List>
       </Drawer>
     </Box>

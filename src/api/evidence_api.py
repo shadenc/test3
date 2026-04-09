@@ -52,6 +52,8 @@ MSG_INTERNAL_ERROR = "Internal server error"
 MSG_FILE_NOT_FOUND = "File not found"
 MSG_OWNERSHIP_UPDATED_OK = "Ownership data updated successfully"
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# Arabic "no data" placeholder (Sonar python:S1192)
+MSG_NO_DATA_AR = "لايوجد"
 
 # Quarter reference labels (Sonar python:S1192 — single definition)
 _REF_Q1_2025 = "Q1 2025"
@@ -191,7 +193,7 @@ def run_quarterly_refresh_and_archive(project_root: Path) -> None:
 
             quarter_data = flow_info.get(current_quarter, {})
 
-            net_profit_value = "لايوجد"
+            net_profit_value = MSG_NO_DATA_AR
             if net_profit_info and "quarterly_net_profit" in net_profit_info:
                 quarter_key = f"{current_quarter} {current_year}"
                 if quarter_key in net_profit_info["quarterly_net_profit"]:
@@ -208,7 +210,7 @@ def run_quarterly_refresh_and_archive(project_root: Path) -> None:
 
             def format_value(value):
                 if value == "" or value is None:
-                    return "لايوجد"
+                    return MSG_NO_DATA_AR
                 if value == 0 or (isinstance(value, str) and value.strip() == "0"):
                     return "0"
                 return value
@@ -1586,7 +1588,7 @@ def create_app():
                 quarter_data = flow_info.get(quarter_filter, {})
 
                 # Get net profit for this quarter
-                net_profit_value = "لايوجد"
+                net_profit_value = MSG_NO_DATA_AR
                 if net_profit_info and "quarterly_net_profit" in net_profit_info:
                     quarter_key = f"{quarter_filter} 2025"
                     if quarter_key in net_profit_info["quarterly_net_profit"]:
@@ -1616,10 +1618,10 @@ def create_app():
                 elif quarter_filter == "Q4":
                     current_quarter = "2025Q4"
 
-                # Handle values properly - show 0 instead of "لايوجد" when it's actually 0
+                # Handle values properly — show 0 instead of MSG_NO_DATA_AR when it's actually 0
                 def format_value(value):
                     if value == "" or value is None:
-                        return "لايوجد"
+                        return MSG_NO_DATA_AR
                     elif value == 0 or (
                         isinstance(value, str) and value.strip() == "0"
                     ):

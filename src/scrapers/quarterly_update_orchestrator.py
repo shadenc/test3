@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import datetime, date
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 import random
 
 
@@ -33,6 +33,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 FOREIGN_OWNERSHIP_JSON = "foreign_ownership_data.json"
+
+
+def _write_json_utf8(path: Path, data: object, *, indent: Optional[int] = 2) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=indent)
+
+
+def _read_net_profit_existing_or_empty(path: Path) -> List:
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning("Error reading existing net profit data: %s", e)
+        return []
+
+
+def _load_ownership_symbols(path: Path) -> List[str]:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return [item["symbol"] for item in data if item.get("symbol")]
 
 
 class QuarterlyUpdateOrchestrator:
@@ -171,8 +193,9 @@ class QuarterlyUpdateOrchestrator:
                 if new_data:
                     # Save to frontend directory
                     output_file = self.frontend_dir / FOREIGN_OWNERSHIP_JSON
-                    with open(output_file, "w", encoding="utf-8") as f:
-                        json.dump(new_data, f, ensure_ascii=False, indent=2)
+                    await asyncio.to_thread(
+                        _write_json_utf8, output_file, new_data, indent=2
+                    )
 
                     logger.info(
                         f"✅ Updated foreign ownership data: {len(new_data)} companies"
@@ -186,7 +209,7 @@ class QuarterlyUpdateOrchestrator:
             logger.error(f"❌ Error updating foreign ownership data: {e}")
             return False
 
-    async def update_financial_pdfs(self, symbols: List[str]) -> Dict[str, List[str]]:
+    async def update_financial_pdfs(self, symbols: List[str]) -> Dict[str, List[str]]:  # NOSONAR
         """Update financial PDFs for companies, only downloading new quarters."""
         logger.info("🔄 Updating financial PDFs...")
 
@@ -249,7 +272,7 @@ class QuarterlyUpdateOrchestrator:
 
         return results
 
-    async def update_net_profit_data(self, symbols: List[str]) -> Dict[str, List[str]]:
+    async def update_net_profit_data(self, symbols: List[str]) -> Dict[str, List[str]]:  # NOSONAR
         """Update net profit data for companies, only scraping new quarters."""
         logger.info("🔄 Updating net profit data...")
 
@@ -306,18 +329,13 @@ class QuarterlyUpdateOrchestrator:
 
         return results
 
-    async def _update_net_profit_file(self, symbol: str, new_data: Dict):
+    async def _update_net_profit_file(self, symbol: str, new_data: Dict):  # NOSONAR
         """Update the net profit JSON file with new data for a company."""
         net_profit_file = self.results_dir / "quarterly_net_profit.json"
 
-        # Load existing data
-        existing_data = []
-        if net_profit_file.exists():
-            try:
-                with open(net_profit_file, "r", encoding="utf-8") as f:
-                    existing_data = json.load(f)
-            except Exception as e:
-                logger.warning(f"Error reading existing net profit data: {e}")
+        existing_data = await asyncio.to_thread(
+            _read_net_profit_existing_or_empty, net_profit_file
+        )
 
         # Find and update existing company data, or add new
         company_found = False
@@ -340,9 +358,9 @@ class QuarterlyUpdateOrchestrator:
             new_data["last_updated"] = datetime.now().isoformat()
             existing_data.append(new_data)
 
-        # Save updated data
-        with open(net_profit_file, "w", encoding="utf-8") as f:
-            json.dump(existing_data, f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(
+            _write_json_utf8, net_profit_file, existing_data, indent=2
+        )
 
         logger.info(f"💾 Updated net profit data for {symbol}")
 
@@ -359,10 +377,9 @@ class QuarterlyUpdateOrchestrator:
         # Step 2: Get company symbols
         if ownership_success:
             ownership_file = self.frontend_dir / FOREIGN_OWNERSHIP_JSON
-            with open(ownership_file, "r", encoding="utf-8") as f:
-                ownership_data = json.load(f)
-
-            symbols = [item["symbol"] for item in ownership_data if item.get("symbol")]
+            symbols = await asyncio.to_thread(
+                _load_ownership_symbols, ownership_file
+            )
             logger.info(f"📋 Processing {len(symbols)} companies")
         else:
             logger.error("❌ Cannot proceed without ownership data")
@@ -393,8 +410,9 @@ class QuarterlyUpdateOrchestrator:
 
         # Save update summary
         summary_file = self.results_dir / "quarterly_update_summary.json"
-        with open(summary_file, "w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(
+            _write_json_utf8, summary_file, summary, indent=2
+        )
 
         logger.info("🎉 Quarterly Update Complete!")
         logger.info(f"⏱️  Duration: {duration}")

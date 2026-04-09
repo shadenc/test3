@@ -179,7 +179,9 @@ class EvidenceScreenshotGenerator:
                 pdf_path = f"data/pdfs/{pdf_filename}"
 
                 if not os.path.exists(pdf_path):
-                    logger.warning(f"PDF not found: {pdf_path}")
+                    logger.warning(
+                        "PDF not found: %s", os.path.basename(pdf_filename)
+                    )
                     continue
 
                 screenshot_path = self.generate_highlight_screenshot(

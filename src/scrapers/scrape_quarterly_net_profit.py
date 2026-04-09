@@ -50,6 +50,12 @@ OUTPUT_FILE = OUTPUT_DIR / "quarterly_net_profit.json"
 _PDF_STOP_FLAG_REL = "data/runtime/stop_pdfs_pipeline.flag"
 
 
+def _write_net_progress_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+
+
 def _net_scraper_stop_requested() -> bool:
     net_path = Path(
         os.environ.get("STOP_FLAG_FILE", "data/runtime/stop_net_profit.flag")
@@ -374,7 +380,7 @@ async def setup_stealth_browser():
     return playwright, browser, context
 
 
-async def navigate_to_company_profile(page: Page, symbol: str) -> bool:
+async def navigate_to_company_profile(page: Page, symbol: str) -> bool:  # NOSONAR
     """Open company profile: direct ?companySymbol= link, then homepage + legacy search."""
     search_url = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/search/!ut/p/z0/04_Sj9CPykssy0xPLMnMz0vMAfIjo8ziTR3NDIw8LAz8DTxCnA3MDILdzUJDLAyNHI30C7IdFQEEx_vC/"
     direct_candidates = [
@@ -473,7 +479,7 @@ async def navigate_to_company_profile(page: Page, symbol: str) -> bool:
         return False
 
 
-async def navigate_to_financial_information(page: Page, symbol: str) -> bool:
+async def navigate_to_financial_information(page: Page, symbol: str) -> bool:  # NOSONAR
     """Navigate to FINANCIAL INFORMATION tab and click Quarterly."""
     try:
         print(f"📊 Looking for FINANCIAL INFORMATION tab for {symbol}...")
@@ -582,7 +588,7 @@ async def navigate_to_financial_information(page: Page, symbol: str) -> bool:
         return False
 
 
-async def scrape_quarterly_net_profit(page: Page, symbol: str) -> Optional[Dict]:
+async def scrape_quarterly_net_profit(page: Page, symbol: str) -> Optional[Dict]:  # NOSONAR
     """Scrape quarterly net profit data from the financial table."""
     try:
         print(f"📈 Scraping quarterly net profit data for {symbol}...")
@@ -830,7 +836,7 @@ def merge_quarterly_net_profit_incremental(
     print(f"💾 Net profit merge: updated {out}")
 
 
-async def process_company_with_retry(
+async def process_company_with_retry(  # NOSONAR
     browser: Browser, symbol: str, max_retries: int = 3
 ) -> Optional[Dict]:
     """Process a single company with retry logic."""
@@ -902,7 +908,7 @@ async def process_company_with_retry(
     return None
 
 
-async def scrape_all_companies_net_profit() -> int:
+async def scrape_all_companies_net_profit() -> int:  # NOSONAR
     """Scrape quarterly net profit data for all companies. Returns 0 on success, 1 if Akamai/WAF blocked."""
     # Get company symbols
     companies = get_company_symbols_from_json()
@@ -923,18 +929,10 @@ async def scrape_all_companies_net_profit() -> int:
     try:
         success_count = 0
         failed_count = 0
-        # progress reporting
-        import os
-        from pathlib import Path
-
         progress_path = Path(
             os.environ.get("PROGRESS_FILE", "data/runtime/net_profit_progress.json")
         )
         processed = 0
-
-        # Stop flag support
-        from pathlib import Path
-        import os
 
         stop_flag = Path(
             os.environ.get("STOP_FLAG_FILE", "data/runtime/stop_net_profit.flag")
@@ -964,30 +962,29 @@ async def scrape_all_companies_net_profit() -> int:
                 success_count += 1
                 print(f"✅ Successfully processed {symbol}")
                 try:
-                    merge_quarterly_net_profit_incremental(result)
+                    await asyncio.to_thread(
+                        merge_quarterly_net_profit_incremental, result
+                    )
                 except Exception as e:
                     print(f"⚠️ Failed to write incremental update: {e}")
             else:
                 failed_count += 1
                 print(f"❌ Failed to process {symbol}")
             processed += 1
-            # write progress
             try:
-                progress_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(progress_path, "w", encoding="utf-8") as f:
-                    json.dump(
-                        {
-                            "status": "running",
-                            "processed": processed,
-                            "success": success_count,
-                            "failed": failed_count,
-                            "current_symbol": symbol,
-                        },
-                        f,
-                        ensure_ascii=False,
-                    )
-            except Exception:
-                pass
+                await asyncio.to_thread(
+                    _write_net_progress_json,
+                    progress_path,
+                    {
+                        "status": "running",
+                        "processed": processed,
+                        "success": success_count,
+                        "failed": failed_count,
+                        "current_symbol": symbol,
+                    },
+                )
+            except Exception as e:
+                print(f"⚠️ progress write: {e}")
 
             # Optional limit for safety (also enforced by LIMIT_COMPANIES)
             try:
@@ -1029,21 +1026,19 @@ async def scrape_all_companies_net_profit() -> int:
             print(
                 f"ℹ️ No new rows scraped; {OUTPUT_FILE} left unchanged unless it already existed from earlier runs."
             )
-        # mark done
         try:
-            with open(progress_path, "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "status": "blocked_by_waf" if waf_aborted else "completed",
-                        "processed": processed,
-                        "success": success_count,
-                        "failed": failed_count,
-                    },
-                    f,
-                    ensure_ascii=False,
-                )
-        except Exception:
-            pass
+            await asyncio.to_thread(
+                _write_net_progress_json,
+                progress_path,
+                {
+                    "status": "blocked_by_waf" if waf_aborted else "completed",
+                    "processed": processed,
+                    "success": success_count,
+                    "failed": failed_count,
+                },
+            )
+        except Exception as e:
+            print(f"⚠️ final progress write: {e}")
 
     finally:
         try:

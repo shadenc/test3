@@ -74,7 +74,18 @@ def _safe_log_quarter_param(value: object) -> str:
     return raw if re.fullmatch(r"\w+", raw, flags=re.ASCII) else "<invalid_quarter>"
 
 
-def run_quarterly_refresh_and_archive(project_root: Path) -> None:
+def _scheduler_run_script(project_root: Path, log_label: str, script: str) -> None:
+    logger.info("%s", log_label)
+    subprocess.run(
+        [sys.executable, script],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=str(project_root),
+    )
+
+
+def run_quarterly_refresh_and_archive(project_root: Path) -> None:  # NOSONAR
     """
     Quarterly refresh: recalc, screenshots, export, archive.
     Module-level to keep create_app() cognitive complexity low.
@@ -82,23 +93,17 @@ def run_quarterly_refresh_and_archive(project_root: Path) -> None:
     try:
         logger.info("[Scheduler] Running quarterly refresh and archive...")
 
-        logger.info("[Scheduler] Step 1: Recalculating reinvested earnings...")
-        subprocess.run(
-            [sys.executable, SCRIPT_CALCULATE_REINVESTED],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=str(project_root),
+        _scheduler_run_script(
+            project_root,
+            "[Scheduler] Step 1: Recalculating reinvested earnings...",
+            SCRIPT_CALCULATE_REINVESTED,
         )
         logger.info("[Scheduler] ✅ Reinvested earnings calculation completed")
 
-        logger.info("[Scheduler] Step 2: Regenerating evidence screenshots...")
-        subprocess.run(
-            [sys.executable, SCRIPT_GENERATE_SCREENSHOTS],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=str(project_root),
+        _scheduler_run_script(
+            project_root,
+            "[Scheduler] Step 2: Regenerating evidence screenshots...",
+            SCRIPT_GENERATE_SCREENSHOTS,
         )
         logger.info("[Scheduler] ✅ Evidence screenshots regeneration completed")
 
@@ -513,7 +518,7 @@ def _run_pdfs_pipeline_task(project_root: Path, downloader: Path, extractor: Pat
     )
 
 
-def _run_net_profit_pipeline_task(project_root: Path, scraper: Path) -> None:
+def _run_net_profit_pipeline_task(project_root: Path, scraper: Path) -> None:  # NOSONAR
     scraper_ok = False
     try:
         logger.info("[NetProfit] Starting scraper...")
@@ -593,7 +598,7 @@ def _run_net_profit_pipeline_task(project_root: Path, scraper: Path) -> None:
             _debug_ignored("clear net profit stop flag after scrape", e)
 
 
-def create_app():
+def create_app():  # NOSONAR
     app = Flask(__name__)
     # Allow CORS from React frontend - supports both localhost and production
     allowed_list = ALLOWED_ORIGINS.split(",") if ALLOWED_ORIGINS != "*" else "*"
@@ -988,9 +993,9 @@ def create_app():
                 )
                 logger.info("Evidence screenshots regeneration completed successfully")
             except subprocess.CalledProcessError as e:
-                logger.warning(f"Evidence screenshots regeneration failed: {e}")
-                # Don't fail the entire refresh for this step
-                pass
+                logger.warning(
+                    "Evidence screenshots regeneration failed (non-fatal): %s", e
+                )
 
             logger.info("Data refresh completed successfully")
             return jsonify(

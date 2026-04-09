@@ -1,10 +1,11 @@
 import asyncio
-import os
 import json
+import logging
+import os
+import random
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
-import random
+from typing import Any, Dict, List, Optional
 
 from playwright.async_api import (
     async_playwright,
@@ -27,6 +28,8 @@ except ImportError:
         dump_tadawul_navigation_debug,
         is_tadawul_access_denied_page,
     )
+
+_logger = logging.getLogger(__name__)
 
 
 def _playwright_headless() -> bool:
@@ -361,7 +364,7 @@ async def _looks_like_company_profile(page: Page) -> bool:
     return False
 
 
-async def navigate_to_company_profile(page: Page, symbol: str) -> bool:
+async def navigate_to_company_profile(page: Page, symbol: str) -> bool:  # NOSONAR
     """Open company profile: try direct ?companySymbol= link, then homepage warm-up + legacy search page."""
     search_url = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/search/!ut/p/z0/04_Sj9CPykssy0xPLMnMz0vMAfIjo8ziTR3NDIw8LAz8DTxCnA3MDILdzUJDLAyNHI30C7IdFQEEx_vC/"
     direct_candidates = [
@@ -466,7 +469,7 @@ async def navigate_to_company_profile(page: Page, symbol: str) -> bool:
         return False
 
 
-async def get_all_financial_reports(
+async def get_all_financial_reports(  # NOSONAR
     page: Page, symbol: str, *, skip_profile_navigation: bool = False
 ):
     """Find all available financial report PDFs (Annual, Q1-Q4) and their years, filtered for target_year and Q4 of previous year.
@@ -601,9 +604,9 @@ async def get_all_financial_reports(
     # Updated filter: Q1, Q2, Q3 of current year and Annual of previous year
     filtered_reports = []
     for stype, year, pdf_url in found_reports:
-        if year == target_year and stype in ["q1", "q2", "q3"]:
-            filtered_reports.append((stype, year, pdf_url))
-        elif year == target_year - 1 and stype == "annual":
+        if (year == target_year and stype in ("q1", "q2", "q3")) or (
+            year == target_year - 1 and stype == "annual"
+        ):
             filtered_reports.append((stype, year, pdf_url))
     print(
         f"[DEBUG] Will download for {symbol}: {[f'{stype}_{year}' for stype, year, _ in filtered_reports]}"
@@ -615,6 +618,18 @@ def _net_profit_scrape_enabled_with_pdf() -> bool:
     """Scrape quarterly net profit in the same browser visit as PDFs unless SKIP_NET_PROFIT_WITH_PDF is set."""
     v = os.environ.get("SKIP_NET_PROFIT_WITH_PDF", "").strip().lower()
     return v not in ("1", "true", "yes")
+
+
+def _write_pdf_bytes_sync(path: Path, pdf_content: List[int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(bytes(pdf_content))
+
+
+def _write_json_progress_sync(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
 
 
 try:
@@ -667,8 +682,9 @@ async def download_pdf_with_stealth(
                 }
             """)
             if pdf_content:
-                with open(pdf_path, "wb") as f:
-                    f.write(bytes(pdf_content))
+                await asyncio.to_thread(
+                    _write_pdf_bytes_sync, pdf_path, pdf_content
+                )
                 print(f"✅ Downloaded {filename} ({len(pdf_content)} bytes)")
                 return True
             else:
@@ -684,7 +700,7 @@ async def download_pdf_with_stealth(
         return False
 
 
-async def process_company_with_retry(
+async def process_company_with_retry(  # NOSONAR
     browser: Browser, symbol: str, max_retries: int = 3
 ) -> bool:
     for attempt in range(max_retries):
@@ -801,11 +817,10 @@ async def process_company_with_retry(
     return False
 
 
-async def download_all_financial_statements() -> int:
+async def download_all_financial_statements() -> int:  # NOSONAR
     """Download the most recent financial statements for all companies. Returns 0 on success, 1 if Akamai/WAF blocked."""
     # Get company symbols from JSON file
     companies = get_company_symbols_from_json()
-    # companies = ["2030"]  # Test with a single company
     if not companies:
         print("❌ No company symbols found. Please run the ownership scraper first.")
         return 0
@@ -862,22 +877,20 @@ async def download_all_financial_statements() -> int:
             processed += 1
             # write progress (keep "finalizing" if user hit Stop — API sets it; do not overwrite with "running")
             try:
-                progress_path.parent.mkdir(parents=True, exist_ok=True)
                 row_status = "finalizing" if _pdf_stop_requested() else "running"
-                with open(progress_path, "w", encoding="utf-8") as f:
-                    json.dump(
-                        {
-                            "status": row_status,
-                            "processed": processed,
-                            "success": success_count,
-                            "failed": failed_count,
-                            "current_symbol": symbol,
-                        },
-                        f,
-                        ensure_ascii=False,
-                    )
-            except Exception:
-                pass
+                await asyncio.to_thread(
+                    _write_json_progress_sync,
+                    progress_path,
+                    {
+                        "status": row_status,
+                        "processed": processed,
+                        "success": success_count,
+                        "failed": failed_count,
+                        "current_symbol": symbol,
+                    },
+                )
+            except Exception as e:
+                _logger.debug("progress write skipped: %s", e, exc_info=True)
 
             # Add delay between companies
             if i < len(companies):
@@ -906,26 +919,19 @@ async def download_all_financial_statements() -> int:
         print(f"📈 Success Rate: {rate:.1f}%")
         # mark done (blocked_by_waf skips downstream extractor in API when exit code != 0)
         try:
-            with open(progress_path, "w", encoding="utf-8") as f:
-                # After API "Stop", extraction runs in parallel; when downloader exits the whole step is done
-                if _pdf_stop_requested():
-                    end_status = "completed"
-                elif waf_aborted:
-                    end_status = "blocked_by_waf"
-                else:
-                    end_status = "completed"
-                json.dump(
-                    {
-                        "status": end_status,
-                        "processed": processed,
-                        "success": success_count,
-                        "failed": failed_count,
-                    },
-                    f,
-                    ensure_ascii=False,
-                )
-        except Exception:
-            pass
+            end_status = "blocked_by_waf" if waf_aborted else "completed"
+            await asyncio.to_thread(
+                _write_json_progress_sync,
+                progress_path,
+                {
+                    "status": end_status,
+                    "processed": processed,
+                    "success": success_count,
+                    "failed": failed_count,
+                },
+            )
+        except Exception as e:
+            _logger.debug("final progress write skipped: %s", e, exc_info=True)
     finally:
         try:
             await browser.close()

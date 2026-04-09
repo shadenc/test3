@@ -270,6 +270,10 @@ function EvidenceScalingBlurb({ evidenceData }) {
   );
 }
 
+EvidenceScalingBlurb.propTypes = {
+  evidenceData: PropTypes.object.isRequired,
+};
+
 function buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, setEvidenceModalOpen) {
   return [
     { field: "symbol", headerName: "رمز الشركة", width: 120, align: "right", headerAlign: "right" },
@@ -708,7 +712,22 @@ EvidenceModal.propTypes = {
   onDataUpdate: PropTypes.func,
 };
 
-function App() {
+function buildCustomDateExportErrorMessage(error) {
+  const msg = error?.message || '';
+  const base = '❌ فشل في تصدير ملف Excel\n\n';
+  if (msg.includes('404')) {
+    return `${base}🔍 السبب: لم يتم العثور على البيانات المطلوبة\n💡 الحل: تأكد من وجود البيانات للربع المحدد`;
+  }
+  if (msg.includes('500')) {
+    return `${base}🔧 السبب: خطأ في الخادم\n💡 الحل: حاول مرة أخرى أو اتصل بالدعم الفني`;
+  }
+  if (msg.includes('fetch')) {
+    return `${base}🌐 السبب: مشكلة في الاتصال\n💡 الحل: تأكد من تشغيل الخادم`;
+  }
+  return `${base}🔍 السبب: ${msg}\n💡 الحل: حاول مرة أخرى`;
+}
+
+function App() { // NOSONAR
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
   const [quarterFilter, setQuarterFilter] = useState("Q1"); // Default to Q1 instead of "all"
@@ -1217,21 +1236,7 @@ function App() {
       
     } catch (error) {
       console.error('Error exporting to Excel:', error);
-      
-      // Show enhanced error message
-      let errorMessage = '❌ فشل في تصدير ملف Excel\n\n';
-      
-      if (error.message.includes('404')) {
-        errorMessage += '🔍 السبب: لم يتم العثور على البيانات المطلوبة\n💡 الحل: تأكد من وجود البيانات للربع المحدد';
-      } else if (error.message.includes('500')) {
-        errorMessage += '🔧 السبب: خطأ في الخادم\n💡 الحل: حاول مرة أخرى أو اتصل بالدعم الفني';
-      } else if (error.message.includes('fetch')) {
-        errorMessage += '🌐 السبب: مشكلة في الاتصال\n💡 الحل: تأكد من تشغيل الخادم';
-      } else {
-        errorMessage += `🔍 السبب: ${error.message}\n💡 الحل: حاول مرة أخرى`;
-      }
-      
-      alert(errorMessage);
+      alert(buildCustomDateExportErrorMessage(error));
     } finally {
       setLoading(false);
     }

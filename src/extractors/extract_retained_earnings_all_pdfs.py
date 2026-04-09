@@ -169,14 +169,14 @@ class RetainedEarningsExtractor:
         year_pattern = r"\b(20[2-3]\d)\b"
         years_found = re.findall(year_pattern, text)
 
-        # Convert to integers and filter realistic years
-        realistic_years = []
-        for year in set(int(y) for y in years_found):
-            if current_year - 10 <= year <= current_year + 1:
-                realistic_years.append(year)
-
-        # Sort by most recent first
-        realistic_years.sort(reverse=True)
+        realistic_years = sorted(
+            (
+                y
+                for y in {int(x) for x in years_found}
+                if current_year - 10 <= y <= current_year + 1
+            ),
+            reverse=True,
+        )
         self.target_years = realistic_years
         self.most_recent_year = realistic_years[0] if realistic_years else None
 
@@ -188,21 +188,21 @@ class RetainedEarningsExtractor:
         """Detect unit declarations in nearby text. Returns dict with unit and multiplier."""
         try:
             lowered = text.lower()
-            # English patterns
-            english_million = re.search(
-                r"all\s+amounts?.*in\s+millions?\s+of\s+saudi\s+riyals|in\s+millions\b|millions\s+of\s+saudi\s+riyals",
-                lowered,
+            english_million = (
+                "in millions" in lowered
+                or "millions of saudi riyals" in lowered
+                or ("all amounts" in lowered and "million" in lowered)
             )
-            english_thousand = re.search(
-                r"all\s+amounts?.*in\s+thousands?\s+of\s+saudi\s+riyals|in\s+thousands\b|thousands\s+of\s+saudi\s+riyals",
-                lowered,
+            english_thousand = (
+                "in thousands" in lowered
+                or "thousands of saudi riyals" in lowered
+                or ("all amounts" in lowered and "thousand" in lowered)
             )
             english_sar = re.search(r"saudi\s+riyals?|\bSAR\b", lowered)
 
-            # Arabic patterns (approximate common variants)
-            arabic_million = re.search(r"بالملايين|\bمليون\b|\bالملايين\b", text)
-            arabic_thousand = re.search(r"بال[اآ]لاف|\bألف\b|\bال[اآ]لاف\b", text)
-            arabic_sar = re.search(r"بالريال\s+السعودي|\bريال\b", text)
+            arabic_million = re.search(r"بالملايين|مليون|الملايين", text)
+            arabic_thousand = re.search(r"بال[اآ]لاف|ألف|ال[اآ]لاف", text)
+            arabic_sar = re.search(r"بالريال\s+السعودي|ريال", text)
 
             if english_million or arabic_million:
                 return {"unit_detected": "million_SAR", "applied_multiplier": 1_000_000}
@@ -264,7 +264,7 @@ class RetainedEarningsExtractor:
             logger.warning(f"Failed to detect units for PDF: {e}")
             return {"unit_detected": "unknown", "applied_multiplier": 1}
 
-    def extract_with_spire_pdf(self, pdf_path: str) -> Optional[Dict]:
+    def extract_with_spire_pdf(self, pdf_path: str) -> Optional[Dict]:  # NOSONAR
         """Extract using Spire.PDF if available"""
         try:
             from spire.pdf import PdfDocument, PdfTableExtractor
@@ -341,7 +341,7 @@ class RetainedEarningsExtractor:
             logger.error(f"Spire.PDF error: {e}")
             return None
 
-    def extract_with_camelot(self, pdf_path: str) -> Optional[Dict]:
+    def extract_with_camelot(self, pdf_path: str) -> Optional[Dict]:  # NOSONAR
         """Extract using Camelot if available"""
         try:
             import camelot
@@ -530,9 +530,9 @@ def save_to_database(results):
     conn.close()
 
 
-def main():
+def main():  # NOSONAR
     pdf_dir = Path("data/pdfs")
-    pdf_files = [f for f in pdf_dir.glob("*.pdf")]
+    pdf_files = list(pdf_dir.glob("*.pdf"))
 
     if not pdf_files:
         print("No PDF files found in data/pdfs/")

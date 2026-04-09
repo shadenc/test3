@@ -38,6 +38,17 @@ class ExcelExporter:
         self.center_alignment = Alignment(horizontal="center", vertical="center")
         self.right_alignment = Alignment(horizontal="right", vertical="center")
 
+    @staticmethod
+    def _format_dashboard_cell_value(value) -> str:
+        empty_markers = ("", "null", "undefined", "nan", "لايوجد")
+        if not value or str(value).strip().lower() in empty_markers:
+            return "لايوجد"
+        try:
+            num_value = float(str(value).replace(",", ""))
+            return f"{num_value:,.0f}" if num_value != 0 else "0"
+        except (ValueError, TypeError):
+            return str(value)
+
     def export_dashboard_table(self, data):
         """
         Export only the dashboard table data in a simple format
@@ -62,29 +73,10 @@ class ExcelExporter:
             # Add data rows
             for row_idx, (_, row) in enumerate(data.iterrows(), 2):
                 row_data = []
-                for col, header in enumerate(headers, 1):
-                    value = row.get(header, "")
-
-                    # Clean and format numeric values
-                    if (
-                        value
-                        and str(value).strip()
-                        and str(value).lower()
-                        not in ["", "null", "undefined", "nan", "لايوجد"]
-                    ):
-                        try:
-                            # Convert to float and format if it's a number
-                            num_value = float(str(value).replace(",", ""))
-                            if num_value != 0:  # Only format non-zero numbers
-                                formatted_value = f"{num_value:,.0f}"
-                            else:
-                                formatted_value = "0"
-                        except (ValueError, TypeError):
-                            formatted_value = str(value)
-                    else:
-                        formatted_value = "لايوجد"
-
-                    row_data.append(formatted_value)
+                for header in headers:
+                    row_data.append(
+                        self._format_dashboard_cell_value(row.get(header, ""))
+                    )
 
                 # Add row data with reversed order for RTL layout
                 for col, value in enumerate(row_data, 1):

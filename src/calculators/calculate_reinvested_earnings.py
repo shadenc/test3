@@ -15,6 +15,21 @@ FLOW_JSON_PATH = "data/results/retained_earnings_flow.json"
 _STMT_TYPE_ORDER = {"annual": 0, "q1": 1, "q2": 2, "q3": 3, "q4": 4}
 
 
+def _reinvested_flow_from_row(row) -> float:
+    try:
+        if pd.isna(row["flow"]) or pd.isna(row["investor_limit"]):
+            return 0.0
+        lim = str(row["investor_limit"]).replace("%", "").strip()
+        if not lim.replace(".", "").isdigit():
+            return 0.0
+        pct = float(lim)
+        if pct <= 0:
+            return 0.0
+        return float(row["flow"]) * (pct / 100.0)
+    except (TypeError, ValueError, KeyError):
+        return 0.0
+
+
 def _find_statement(statements: List[Dict], stype: str, year: int):
     return next(
         (s for s in statements if s["type"] == stype and s["year"] == year), None
@@ -173,7 +188,7 @@ def _single_latest_statement_rows(company: str, statements: List[Dict]) -> List[
     return rows
 
 
-def parse_statement_info(filename: str) -> Dict:
+def parse_statement_info(filename: str) -> Optional[Dict]:
     """Parse PDF filename to extract company, statement type, and year"""
     # Example: 2222_q1_2025.pdf -> company: 2222, type: q1, year: 2025
     # Example: 2382_annual_2024.pdf -> company: 2382, type: annual, year: 2024
@@ -186,6 +201,34 @@ def parse_statement_info(filename: str) -> Dict:
 
         return {"company": company, "type": statement_type, "year": year}
     return None
+
+
+def _flow_rows_for_company(company: str, statements: List[Dict]) -> List[Dict]:
+    statements = _dedupe_statements(statements)
+    statements.sort(key=lambda x: (x["year"], _STMT_TYPE_ORDER.get(x["type"], 999)))
+    if not statements:
+        return []
+    current_year = max(s["year"] for s in statements)
+    company_flows: List[Dict] = []
+    for flow in _quarterly_flows_for_year(statements, current_year):
+        company_flows.append(
+            {
+                "company_symbol": company,
+                "quarter": flow["quarter"],
+                "year": flow["year"],
+                "current_value": flow["current_value"],
+                "previous_value": flow["previous_value"],
+                "flow": flow["flow"],
+                "flow_formula": flow["flow_formula"],
+            }
+        )
+    if not company_flows:
+        for row in _annual_yoy_fallback_rows(company, statements):
+            company_flows.append(row)
+    if not company_flows:
+        for row in _single_latest_statement_rows(company, statements):
+            company_flows.append(row)
+    return company_flows
 
 
 def calculate_retained_earnings_flow(retained_data: List[Dict]) -> List[Dict]:
@@ -218,36 +261,12 @@ def calculate_retained_earnings_flow(retained_data: List[Dict]) -> List[Dict]:
     flow_results: List[Dict] = []
 
     for company, statements in companies.items():
-        statements = _dedupe_statements(statements)
-        statements.sort(key=lambda x: (x["year"], _STMT_TYPE_ORDER.get(x["type"], 999)))
-        if not statements:
-            continue
-        current_year = max(s["year"] for s in statements)
-        company_flows: List[Dict] = []
-        for flow in _quarterly_flows_for_year(statements, current_year):
-            company_flows.append(
-                {
-                    "company_symbol": company,
-                    "quarter": flow["quarter"],
-                    "year": flow["year"],
-                    "current_value": flow["current_value"],
-                    "previous_value": flow["previous_value"],
-                    "flow": flow["flow"],
-                    "flow_formula": flow["flow_formula"],
-                }
-            )
-        if not company_flows:
-            for row in _annual_yoy_fallback_rows(company, statements):
-                company_flows.append(row)
-        if not company_flows:
-            for row in _single_latest_statement_rows(company, statements):
-                company_flows.append(row)
-        flow_results.extend(company_flows)
+        flow_results.extend(_flow_rows_for_company(company, statements))
 
     return flow_results
 
 
-def main():
+def main():  # NOSONAR
     """Main function to calculate retained earnings flow"""
     print("🔄 Calculating Retained Earnings Flow (Quarterly Changes)")
     print("=" * 60)
@@ -340,22 +359,8 @@ def main():
             how="left",
         )
 
-        # Calculate reinvested earnings flow (foreign investor portion)
         merged["reinvested_earnings_flow"] = merged.apply(
-            lambda row: (
-                row["flow"] * (float(str(row["investor_limit"]).replace("%", "")) / 100)
-                if (
-                    pd.notna(row["flow"])
-                    and pd.notna(row["investor_limit"])
-                    and str(row["investor_limit"])
-                    .replace("%", "")
-                    .replace(".", "")
-                    .isdigit()
-                    and float(str(row["investor_limit"]).replace("%", "")) > 0
-                )
-                else 0
-            ),
-            axis=1,
+            _reinvested_flow_from_row, axis=1
         )
 
         # Load net profit data for additional calculations

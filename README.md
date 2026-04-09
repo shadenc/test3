@@ -39,7 +39,7 @@ src/
   extractors/    PDF retained earnings extraction
   calculators/   Reinvested earnings logic
   utils/         Excel export, screenshots
-frontend/        React + Material UI
+frontend/        React + Material UI (`src/app/` shell, `src/dashboard/` feature, `src/services/` API)
 data/            Inputs and generated results (large assets gitignored as configured)
 output/          Screenshots and exports
 ```

@@ -5,15 +5,11 @@ import TextField from "@mui/material/TextField";
 import Paper from "@mui/material/Paper";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import Typography from "@mui/material/Typography";
-import Papa from "papaparse";
 import Modal from "@mui/material/Modal";
 import Fade from "@mui/material/Fade";
 import IconButton from "@mui/material/IconButton";
-import CloseIcon from "@mui/icons-material/Close";
-import VisibilityIcon from "@mui/icons-material/Visibility";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import Tooltip from '@mui/material/Tooltip';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -33,691 +29,25 @@ import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import MenuItem from '@mui/material/MenuItem';
 import Add from '@mui/icons-material/Add';
 import LinearProgress from '@mui/material/LinearProgress';
-import PropTypes from 'prop-types';
-
-// API URL configuration - supports both localhost and production
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5003';
-
-function buildEvidenceScreenshotUrl(companySymbol, requestedQuarter = 'Q1_2025') {
-  return `${API_URL}/api/evidence/${companySymbol}.png?quarter=${requestedQuarter || 'Q1_2025'}&t=${Date.now()}`;
-}
-
-/** Flask-WTF CSRF: mutating API calls must send X-CSRFToken (see /api/csrf-token). */
-let csrfTokenPromise = null;
-
-async function getCsrfToken() {
-  if (!csrfTokenPromise) {
-    csrfTokenPromise = fetch(`${API_URL}/api/csrf-token`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`CSRF token HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((j) => j.csrf_token);
-  }
-  return csrfTokenPromise;
-}
-
-async function withCsrfHeaders(headersInit) {
-  const token = await getCsrfToken();
-  const h = new Headers(headersInit || {});
-  h.set('X-CSRFToken', token);
-  return h;
-}
-
-const devLog =
-  process.env.NODE_ENV === 'development'
-    ? (...args) => {
-        console.log(...args);
-      }
-    : () => {};
-
-const CONTENT_DISPOSITION_FILENAME_RE = /filename="(.+)"/;
-
-function parseFilenameFromContentDisposition(contentDisposition) {
-  if (!contentDisposition) return 'dashboard_table.xlsx';
-  const m = CONTENT_DISPOSITION_FILENAME_RE.exec(contentDisposition);
-  return m ? m[1] : 'dashboard_table.xlsx';
-}
-
-/** Trim CSV row keys/cells without nested forEach-in-map (Sonar nesting). */
-function trimCsvRowCells(row) {
-  const cleanedRow = {};
-  for (const key of Object.keys(row)) {
-    const cleanKey = key.trim();
-    cleanedRow[cleanKey] = row[key] ? String(row[key]).trim() : '';
-  }
-  return cleanedRow;
-}
-
-/** Single source for quarter → API keys and column header suffixes (Sonar duplication). */
-const DASHBOARD_QUARTER_CONFIG = {
-  Q1: {
-    evidencePrev: 'Annual_2024',
-    evidenceCurr: 'Q1_2025',
-    netProfitKey: 'Q1 2025',
-    previousHeader: '2024Q4',
-    currentHeader: '2025Q1',
-  },
-  Q2: {
-    evidencePrev: 'Q1_2025',
-    evidenceCurr: 'Q2_2025',
-    netProfitKey: 'Q2 2025',
-    previousHeader: '2025Q1',
-    currentHeader: '2025Q2',
-  },
-  Q3: {
-    evidencePrev: 'Q2_2025',
-    evidenceCurr: 'Q3_2025',
-    netProfitKey: 'Q3 2025',
-    previousHeader: '2025Q2',
-    currentHeader: '2025Q3',
-  },
-  Q4: {
-    evidencePrev: 'Q3_2025',
-    evidenceCurr: 'Q4_2025',
-    netProfitKey: 'Q4 2025',
-    previousHeader: '2025Q3',
-    currentHeader: '2025Q4',
-  },
-};
-
-function quarterDashboardConfig(quarterFilter) {
-  return DASHBOARD_QUARTER_CONFIG[quarterFilter] || DASHBOARD_QUARTER_CONFIG.Q1;
-}
-
-function evidenceQuarterForPreviousColumn(quarterFilter) {
-  return quarterDashboardConfig(quarterFilter).evidencePrev;
-}
-
-function evidenceQuarterForCurrentColumn(quarterFilter) {
-  return quarterDashboardConfig(quarterFilter).evidenceCurr;
-}
-
-function netProfitQuarterKeyFromFilter(quarterFilter) {
-  return quarterDashboardConfig(quarterFilter).netProfitKey;
-}
-
-function flowSignedTypographyParts(numValue) {
-  const isPositive = numValue >= 0;
-  const color = isPositive ? '#2e7d32' : '#d32f2f';
-  let sign = '';
-  if (numValue > 0) sign = '+';
-  return { color, sign };
-}
-
-const GRID_EMPTY_VALUE_SENTINELS = new Set(['', 'null', 'undefined']);
-
-function isDataGridCellEmpty(value) {
-  return !value || GRID_EMPTY_VALUE_SENTINELS.has(value);
-}
-
-const EVIDENCE_EYE_ICON_SX = {
-  color: '#1e6641',
-  '&:hover': { bgcolor: '#e8f5ee' },
-  padding: '8px',
-  minWidth: '40px',
-  width: '40px',
-  height: '40px',
-};
-
-function renderSignedSarFlowGridCell(params) {
-  const value = params.value;
-  if (isDataGridCellEmpty(value)) {
-    return 'لايوجد';
-  }
-  const numValue = Number.parseFloat(value);
-  if (!Number.isNaN(numValue)) {
-    const { color, sign } = flowSignedTypographyParts(numValue);
-    return (
-      <Typography sx={{ color, fontWeight: 'bold' }}>
-        {sign}{numValue.toLocaleString('en-US')} SAR
-      </Typography>
-    );
-  }
-  return value;
-}
-
-function renderRetainedQuarterGridCell(
-  params,
-  quarterFilter,
-  fetchEvidenceData,
-  setEvidenceModalOpen,
-  evidenceQuarterKeyFn,
-) {
-  const value = params.value;
-  if (isDataGridCellEmpty(value)) {
-    return 'لايوجد';
-  }
-  const numValue = Number.parseFloat(value);
-  if (!Number.isNaN(numValue)) {
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography>{numValue.toLocaleString('en-US')}</Typography>
-        <Tooltip title="عرض دليل الاستخراج - انقر لرؤية المستند الأصلي" arrow placement="top">
-          <IconButton
-            size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              fetchEvidenceData(params.row.symbol, evidenceQuarterKeyFn(quarterFilter));
-              setEvidenceModalOpen(true);
-            }}
-            sx={EVIDENCE_EYE_ICON_SX}
-          >
-            <VisibilityIcon sx={{ fontSize: '16px' }} />
-          </IconButton>
-        </Tooltip>
-      </Box>
-    );
-  }
-  return value;
-}
-
-function mergeCorrectionIntoRows(prevRows, updated) {
-  return prevRows.map((row) => {
-    if (!row.symbol || !updated.company_symbol) return row;
-    if (row.symbol.toString() !== updated.company_symbol.toString()) return row;
-    return {
-      ...row,
-      retained_earnings: updated.retained_earnings || updated.value || '',
-      reinvested_earnings: updated.reinvested_earnings || '',
-      year: updated.year || '',
-      error: updated.error || '',
-    };
-  });
-}
-
-function combineDashboardRows(foreignOwnershipData, quarterlyFlowData, onEvidenceClick) {
-  const flowMap = buildFlowMapFromQuarterlyRows(quarterlyFlowData);
-  return mergeOwnershipWithQuarterlyFlow(foreignOwnershipData, flowMap, onEvidenceClick);
-}
-
-function previousQuarterHeaderLabel(qf) {
-  return quarterDashboardConfig(qf).previousHeader;
-}
-
-function currentQuarterHeaderLabel(qf) {
-  return quarterDashboardConfig(qf).currentHeader;
-}
-
-/** Parse retained-earnings flow CSV; extracted to limit callback nesting (Sonar). */
-function parseQuarterlyFlowCsvText(csvText) {
-  return new Promise((resolve) => {
-    Papa.parse(csvText, {
-      header: true,
-      complete: (result) => {
-        devLog("CSV parsing result:", result);
-        if (result.data && result.data.length > 0) {
-          const cleanedData = result.data
-            .filter((row) => row.company_symbol && row.company_symbol.trim() !== '')
-            .map(trimCsvRowCells);
-          devLog("Cleaned CSV data:", cleanedData);
-          resolve(cleanedData);
-        } else {
-          devLog("No CSV data found");
-          resolve([]);
-        }
-      },
-      error: (error) => {
-        console.error("Error parsing CSV data:", error);
-        resolve([]);
-      },
-    });
-  });
-}
-
-const QUARTERS_Q1_Q4 = ['Q1', 'Q2', 'Q3', 'Q4'];
-
-function buildFlowMapFromQuarterlyRows(quarterlyFlowData) {
-  const flowMap = {};
-  quarterlyFlowData.forEach((row) => {
-    const symbol = row.company_symbol ? row.company_symbol.toString().trim() : '';
-    const quarter = row.quarter ? row.quarter.toString().trim() : '';
-    if (!symbol || !quarter) {
-      return;
-    }
-    if (!flowMap[symbol]) {
-      flowMap[symbol] = {};
-    }
-    flowMap[symbol][quarter] = {
-      previous_value: row.previous_value || '',
-      current_value: row.current_value || '',
-      flow: row.flow || '',
-      flow_formula: row.flow_formula || '',
-      year: row.year || '',
-      foreign_investor_flow: row.reinvested_earnings_flow || '',
-      net_profit_foreign_investor: row.net_profit_foreign_investor || '',
-      distributed_profits_foreign_investor: row.distributed_profits_foreign_investor || '',
-    };
-    devLog(`Mapped flow data for ${symbol} ${quarter}:`, {
-      ...flowMap[symbol][quarter],
-      net_profit_foreign_investor: row.net_profit_foreign_investor,
-      distributed_profits_foreign_investor: row.distributed_profits_foreign_investor,
-    });
-  });
-  return flowMap;
-}
-
-function mergeOwnershipWithQuarterlyFlow(foreignOwnershipData, flowMap, onEvidenceClick) {
-  const mergedData = [];
-  foreignOwnershipData.forEach((row, idx) => {
-    const symbol = row.symbol ? row.symbol.toString().trim() : '';
-    const flowData = flowMap[symbol] || {};
-    QUARTERS_Q1_Q4.forEach((quarter) => {
-      const quarterData = flowData[quarter] || {};
-      const mergedRow = {
-        ...row,
-        company_symbol: symbol,
-        previous_quarter_value: quarterData.previous_value || '',
-        current_quarter_value: quarterData.current_value || '',
-        flow: quarterData.flow || '',
-        flow_formula: quarterData.flow_formula || '',
-        year: quarterData.year || '',
-        foreign_investor_flow: quarterData.foreign_investor_flow || '',
-        net_profit_foreign_investor: quarterData.net_profit_foreign_investor || '',
-        distributed_profits_foreign_investor: quarterData.distributed_profits_foreign_investor || '',
-        quarter,
-        id: `${symbol}_${quarter}_${idx}`,
-        onEvidenceClick,
-      };
-      if (mergedData.length < 5 || symbol === '2222') {
-        devLog(`Row ${mergedData.length} (${symbol} ${quarter}):`, {
-          symbol: mergedRow.symbol,
-          company_name: mergedRow.company_name,
-          quarter: mergedRow.quarter,
-          flow: mergedRow.flow,
-          flow_formula: mergedRow.flow_formula,
-        });
-      }
-      mergedData.push(mergedRow);
-    });
-  });
-  return mergedData;
-}
-
-function EvidenceScalingBlurb({ evidenceData }) {
-  const rawStr = String(evidenceData.value || '').replaceAll(/[^0-9,.-]/g, '');
-  const raw = Number(rawStr.replaceAll(',', ''));
-  const mult = Number(evidenceData.applied_multiplier || 1);
-  const unit = String(evidenceData.unit_detected || 'SAR');
-  let unitLabel = 'غير محدد';
-  if (unit === 'million_SAR') unitLabel = 'بالملايين';
-  else if (unit === 'thousand_SAR') unitLabel = 'بالآلاف';
-  else if (unit === 'SAR') unitLabel = 'بالريال السعودي';
-  if (!raw || mult === 1) {
-    const directSar =
-      unit === 'SAR' || mult === 1
-        ? 'القيم بالريال السعودي مباشرة (بدون تحويل).'
-        : `الوحدة: ${unitLabel}`;
-    return (
-      <Typography variant="body2" sx={{ color: '#4d4d4d' }}>
-        {directSar}
-      </Typography>
-    );
-  }
-  const result = raw * mult;
-  return (
-    <>
-      <Typography variant="body2" sx={{ color: '#4d4d4d' }}>
-        تم اكتشاف أن القيم {unitLabel}. تم تحويل القيمة كما يلي:
-      </Typography>
-      <Typography variant="body2" sx={{ mt: 0.5, direction: 'ltr', fontFamily: 'monospace', color: '#1e6641' }}>
-        {raw.toLocaleString('en-US')} × {mult.toLocaleString('en-US')} = {result.toLocaleString('en-US')}
-      </Typography>
-    </>
-  );
-}
-
-EvidenceScalingBlurb.propTypes = {
-  evidenceData: PropTypes.object.isRequired,
-};
-
-function buildDataGridColumns(quarterFilter, netProfitData, fetchEvidenceData, setEvidenceModalOpen) {
-  return [
-    { field: "symbol", headerName: "رمز الشركة", width: 120, align: "right", headerAlign: "right" },
-    { field: "company_name", headerName: "الشركة", width: 200, align: "right", headerAlign: "right" },
-    { field: "foreign_ownership", headerName: "ملكية جميع المستثمرين الأجانب", width: 220, align: "right", headerAlign: "right" },
-    { field: "max_allowed", headerName: "الملكية الحالية", width: 150, align: "right", headerAlign: "right" },
-    { field: "investor_limit", headerName: "ملكية المستثمر الاستراتيجي الأجنبي", width: 220, align: "right", headerAlign: "right" },
-    {
-      field: "previous_quarter_value",
-      headerName: `الأرباح المبقاة للربع السابق (${previousQuarterHeaderLabel(quarterFilter)})`,
-      width: 250,
-      align: "right",
-      headerAlign: "right",
-      renderCell: (params) =>
-        renderRetainedQuarterGridCell(
-          params,
-          quarterFilter,
-          fetchEvidenceData,
-          setEvidenceModalOpen,
-          evidenceQuarterForPreviousColumn,
-        ),
-    },
-    {
-      field: "current_quarter_value",
-      headerName: `الأرباح المبقاة للربع الحالي (${currentQuarterHeaderLabel(quarterFilter)})`,
-      width: 250,
-      align: "right",
-      headerAlign: "right",
-      renderCell: (params) =>
-        renderRetainedQuarterGridCell(
-          params,
-          quarterFilter,
-          fetchEvidenceData,
-          setEvidenceModalOpen,
-          evidenceQuarterForCurrentColumn,
-        ),
-    },
-    {
-      field: "flow",
-      headerName: "حجم الزيادة أو النقص في الأرباح المبقاة (التدفق)",
-      width: 280,
-      align: "right",
-      headerAlign: "right",
-      renderCell: renderSignedSarFlowGridCell,
-    },
-    {
-      field: "foreign_investor_flow",
-      headerName: "تدفق الأرباح المبقاة للمستثمر الأجنبي",
-      width: 250,
-      align: "right",
-      headerAlign: "right",
-      renderCell: renderSignedSarFlowGridCell,
-    },
-    {
-      field: "net_profit",
-      headerName: "صافي الربح",
-      width: 150,
-      align: "right",
-      headerAlign: "right",
-      renderCell: (params) => {
-        const companySymbol = params.row.company_symbol;
-        const companyNetProfit = netProfitData[companySymbol];
-        if (companyNetProfit?.quarterly_net_profit) {
-          const quarterKey = netProfitQuarterKeyFromFilter(quarterFilter);
-          const npValue = companyNetProfit.quarterly_net_profit[quarterKey];
-          if (npValue !== undefined && npValue !== null) {
-            return npValue.toLocaleString('en-US');
-          }
-        }
-        return "لايوجد";
-      }
-    },
-    {
-      field: "net_profit_foreign_investor",
-      headerName: "صافي الربح للمستثمر الأجنبي",
-      width: 220,
-      align: "right",
-      headerAlign: "right",
-      renderCell: renderSignedSarFlowGridCell,
-    },
-    {
-      field: "distributed_profits_foreign_investor",
-      headerName: "الأرباح الموزعة للمستثمر الأجنبي",
-      width: 250,
-      align: "right",
-      headerAlign: "right",
-      renderCell: renderSignedSarFlowGridCell,
-    }
-  ];
-}
-
-// Evidence Modal Component
-const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpdate }) => {
-  const [verifyMode, setVerifyMode] = useState(null); // null | 'confirm' | 'incorrect'
-  const [correctionValue, setCorrectionValue] = useState("");
-  const [correctionFeedback, setCorrectionFeedback] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      aria-labelledby="evidence-modal-title"
-      aria-describedby="evidence-modal-description"
-    >
-      <Box sx={{
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: { xs: '95%', md: '70%' },
-        maxWidth: 600,
-        maxHeight: '80vh',
-        bgcolor: 'background.paper',
-        borderRadius: 3,
-        boxShadow: 24,
-        p: 3,
-        overflow: 'auto',
-        direction: 'rtl'
-      }}>
-        {/* Header */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography id="evidence-modal-title" variant="h5" component="h2" sx={{ fontWeight: 'bold', color: '#1e6641' }}>
-            دليل الاستخراج - الأرباح المبقاة
-          </Typography>
-          <IconButton onClick={onClose} sx={{ color: '#666' }}>
-            <CloseIcon />
-          </IconButton>
-        </Box>
-
-        {/* Content */}
-        {loading && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
-            <CircularProgress sx={{ color: '#1e6641' }} />
-            <Typography sx={{ ml: 2, color: '#666' }}>جاري تحميل الدليل...</Typography>
-          </Box>
-        )}
-
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-
-        {evidenceData && !loading && (
-          <>
-            {/* Screenshot */}
-            {evidenceData.evidence?.has_evidence && (
-              <Box sx={{ mb: 4 }}>
-                <Box sx={{ 
-                  display: 'flex', 
-                  justifyContent: 'center',
-                  border: '2px solid #e0e0e0',
-                  borderRadius: 2,
-                  overflow: 'auto',
-                  bgcolor: '#fafafa',
-                  maxHeight: '50vh'
-                }}>
-                  <img 
-                    src={buildEvidenceScreenshotUrl(
-                      evidenceData.company_symbol,
-                      evidenceData.evidence?.requested_quarter,
-                    )}
-                    alt="Evidence Screenshot"
-                    style={{ 
-                      maxWidth: '100%', 
-                      maxHeight: 'none',
-                      objectFit: 'contain'
-                    }}
-                    onLoad={() => {
-                      devLog('Evidence image loaded with quarter:', evidenceData.evidence?.requested_quarter);
-                      devLog(
-                        'Full image URL:',
-                        buildEvidenceScreenshotUrl(
-                          evidenceData.company_symbol,
-                          evidenceData.evidence?.requested_quarter,
-                        ),
-                      );
-                    }}
-                  />
-                </Box>
-              </Box>
-            )}
-
-            {/* Extracted numeric value */}
-            {evidenceData.numeric_value && (
-              <Box sx={{ mt: 3 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#1e6641', display: 'flex', alignItems: 'center', gap: 1 }}>
-                      القيمة المستخرجة:
-                  {evidenceData.applied_multiplier && Number(evidenceData.applied_multiplier) > 1 && (
-                    <span style={{ color: '#888', fontWeight: 400 }}>(تم تطبيق تحويل الوحدة)</span>
-                  )}
-                    </Typography>
-                <Typography variant="h6" sx={{ mt: 0.5 }}>
-                  {Number(evidenceData.numeric_value).toLocaleString('en-US')} SAR
-                </Typography>
-
-                {/* Scaling explanation */}
-                <Box sx={{ mt: 1.5, p: 1.5, bgcolor: '#f7f9f8', border: '1px solid #e0e6e4', borderRadius: 1.5 }}>
-                  <EvidenceScalingBlurb evidenceData={evidenceData} />
-                  </Box>
-              </Box>
-            )}
-
-            {/* Extraction Details */}
-                  {evidenceData.extraction_method && (
-                    <Box sx={{ 
-                      p: 3,
-                      bgcolor: '#f8f9fa',
-                      borderRadius: 2,
-                      border: '1px solid #e0e0e0'
-                    }}>
-                      <Typography sx={{ 
-                        fontSize: '1rem',
-                        color: '#666',
-                        fontWeight: '500'
-                      }}>
-                        <strong>طريقة الاستخراج:</strong> {evidenceData.extraction_method}
-                      </Typography>
-              </Box>
-            )}
-
-            {/* Raw Text Context */}
-            {evidenceData.context && (
-              <Box>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2, color: '#1e6641' }}>
-                  النص المستخرج
-                </Typography>
-                <Box sx={{ 
-                  p: 2, 
-                  bgcolor: '#f8f9fa', 
-                  borderRadius: 2,
-                  border: '1px solid #e0e0e0',
-                  fontFamily: 'monospace',
-                  fontSize: '14px',
-                  whiteSpace: 'pre-wrap',
-                  maxHeight: '200px',
-                  overflow: 'auto'
-                }}>
-                  {evidenceData.context}
-                </Box>
-              </Box>
-            )}
-            {evidenceData?.context && !loading && (
-              <Box sx={{ mt: 2, textAlign: 'left' }}>
-                <Tooltip title="تعديل النتيجة" arrow>
-                  <IconButton
-                    size="small"
-                    sx={{ color: '#1e6641', opacity: 0.7, ml: 1, '&:hover': { opacity: 1, bgcolor: '#e8f5ee' } }}
-                    onClick={() => setVerifyMode(verifyMode ? null : 'form')}
-                  >
-                    <InfoOutlinedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                {verifyMode === 'form' && (
-                  <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <TextField
-                      size="small"
-                      label="القيمة الصحيحة"
-                      value={correctionValue}
-                      onChange={e => setCorrectionValue(e.target.value)}
-                      sx={{ maxWidth: 180 }}
-                    />
-                    <TextField
-                      size="small"
-                      label="ملاحظات (اختياري)"
-                      value={correctionFeedback}
-                      onChange={e => setCorrectionFeedback(e.target.value)}
-                      sx={{ maxWidth: 250 }}
-                    />
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="primary"
-                      sx={{ fontSize: 13, px: 2, py: 0.5, mt: 1, alignSelf: 'flex-start' }}
-                      onClick={async () => {
-                        setSubmitted(true);
-                        // Send correction to backend
-                        try {
-                          const res = await fetch(`${API_URL}/api/correct_retained_earnings`, {
-                            method: 'POST',
-                            headers: await withCsrfHeaders({ 'Content-Type': 'application/json' }),
-                            body: JSON.stringify({
-                              company_symbol: evidenceData.company_symbol || evidenceData.symbol,
-                              correct_value: correctionValue,
-                              feedback: correctionFeedback,
-                            })
-                          });
-                          const data = await res.json();
-                          if (data.status === 'success') {
-                            // Update local view of value
-                            evidenceData.value = correctionValue;
-                            // Trigger dashboard refresh
-                            if (typeof onDataUpdate === 'function') {
-                              onDataUpdate();
-                            }
-                          }
-                        } catch (e) {
-                          devLog('correct_retained_earnings failed', e);
-                        }
-                        setVerifyMode(null);
-                        // Close the modal after save
-                        if (typeof onClose === 'function') onClose();
-                      }}
-                    >
-                      إرسال التصحيح
-                    </Button>
-                    {submitted && (
-                      <Typography sx={{ color: '#1e6641', fontSize: 14, mt: 1 }}>شكرًا لملاحظتك! تم تسجيل التصحيح.</Typography>
-                    )}
-                  </Box>
-                )}
-                {submitted && !verifyMode && (
-                  <Typography sx={{ color: '#1e6641', fontSize: 14, mt: 1 }}>شكرًا لملاحظتك! تم تسجيل التصحيح.</Typography>
-                )}
-              </Box>
-            )}
-          </>
-        )}
-      </Box>
-    </Modal>
-  );
-};
-
-EvidenceModal.propTypes = {
-  open: PropTypes.bool.isRequired,
-  onClose: PropTypes.func.isRequired,
-  evidenceData: PropTypes.object,
-  loading: PropTypes.bool,
-  error: PropTypes.string,
-  onDataUpdate: PropTypes.func,
-};
-
-function buildCustomDateExportErrorMessage(error) {
-  const msg = error?.message || '';
-  const base = '❌ فشل في تصدير ملف Excel\n\n';
-  if (msg.includes('404')) {
-    return `${base}🔍 السبب: لم يتم العثور على البيانات المطلوبة\n💡 الحل: تأكد من وجود البيانات للربع المحدد`;
-  }
-  if (msg.includes('500')) {
-    return `${base}🔧 السبب: خطأ في الخادم\n💡 الحل: حاول مرة أخرى أو اتصل بالدعم الفني`;
-  }
-  if (msg.includes('fetch')) {
-    return `${base}🌐 السبب: مشكلة في الاتصال\n💡 الحل: تأكد من تشغيل الخادم`;
-  }
-  return `${base}🔍 السبب: ${msg}\n💡 الحل: حاول مرة أخرى`;
-}
+import {
+  API_URL,
+  apiUrl,
+  postCsrfOptionalLog,
+  postJsonWithCsrf,
+  withCsrfHeaders,
+} from '../services/apiClient';
+import { startJobStatusPoll } from '../services/statusPolling';
+import {
+  EvidenceModal,
+  buildCustomDateExportErrorMessage,
+  buildDataGridColumns,
+  combineDashboardRows,
+  devLog,
+  fetchBackendJsonList,
+  mergeCorrectionIntoRows,
+  parseFilenameFromContentDisposition,
+  parseQuarterlyFlowCsvText,
+} from '../dashboard';
 
 function App() { // NOSONAR
   const [rows, setRows] = useState([]);
@@ -756,111 +86,79 @@ function App() { // NOSONAR
   const [bothProgressOpen, setBothProgressOpen] = useState(false);
   const [bothIsStopping, setBothIsStopping] = useState(false);
 
+  const PIPELINE_BUSY_FALLBACK_AR = 'يوجد مهمة متصفح أخرى قيد التشغيل.';
+
+  const alertPipelineStartFailure = (res, data, messagePrefix = '❌ لم يتم بدء العملية: ') => {
+    if (res.status === 409) {
+      alert(`❌ ${data.hint_ar || data.hint || data.message || PIPELINE_BUSY_FALLBACK_AR}`);
+      return;
+    }
+    alert(messagePrefix + (data.message || ''));
+  };
+
   const startPollPdf = (onComplete) => {
-    if (pdfPollId) return;
-    const id = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/pdfs/status`);
-        const data = await res.json();
-        setPdfJobStatus(data);
-        if (data.status === 'completed' || data.status === 'idle' || data.status === 'blocked_by_waf') {
-          clearInterval(id);
-          setPdfPollId(null);
-          setPdfProgressOpen(false);
-          // Trigger dashboard data reload (ensure backend has flushed files)
-          setTimeout(() => {
-            fetchData();
-            // also refresh net profit map in case both was selected
-            fetchNetProfitData();
-          }, 300);
-          if (typeof onComplete === 'function') {
-            onComplete();
-          }
-        }
-      } catch (e) {
-        devLog('pdf status poll', e);
-      }
-    }, 1500);
-    setPdfPollId(id);
+    startJobStatusPoll({
+      isAlreadyPolling: () => pdfPollId,
+      setPollIntervalId: setPdfPollId,
+      path: 'api/pdfs/status',
+      setStatus: setPdfJobStatus,
+      isDone: (d) => d.status === 'completed' || d.status === 'idle' || d.status === 'blocked_by_waf',
+      beforeReload: () => setPdfProgressOpen(false),
+      reloadFns: [fetchData, fetchNetProfitData],
+      onComplete,
+      logLabel: 'pdf status poll',
+      log: devLog,
+    });
   };
 
   const startPollNet = (onComplete) => {
-    if (netPollId) return;
-    const id = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/net_profit/status`);
-        const data = await res.json();
-        setNetJobStatus(data);
-        if (data.status === 'completed' || data.status === 'idle') {
-          clearInterval(id);
-          setNetPollId(null);
-          setNetProgressOpen(false);
-          // Trigger dashboard data reload (ensure backend has flushed files)
-          setTimeout(() => {
-            // refresh net profit and flows
-            fetchNetProfitData();
-            fetchData();
-          }, 300);
-          if (typeof onComplete === 'function') {
-            onComplete();
-          }
-        }
-      } catch (e) {
-        devLog('net profit status poll', e);
-      }
-    }, 1500);
-    setNetPollId(id);
+    startJobStatusPoll({
+      isAlreadyPolling: () => netPollId,
+      setPollIntervalId: setNetPollId,
+      path: 'api/net_profit/status',
+      setStatus: setNetJobStatus,
+      isDone: (d) => d.status === 'completed' || d.status === 'idle',
+      beforeReload: () => setNetProgressOpen(false),
+      reloadFns: [fetchNetProfitData, fetchData],
+      onComplete,
+      logLabel: 'net profit status poll',
+      log: devLog,
+    });
   };
 
   const startPdfPipelineOnly = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/run_pdfs_pipeline`, {
-        method: 'POST',
-        headers: await withCsrfHeaders(),
-      });
-      const data = await res.json();
+      const { res, data } = await postJsonWithCsrf('api/run_pdfs_pipeline');
       if (res.status === 202) {
         setPdfJobStatus({ status: 'running' });
         setPdfProgressOpen(true);
         startPollPdf();
-      } else if (res.status === 409) {
-        alert('❌ ' + (data.hint_ar || data.hint || data.message || 'يوجد مهمة متصفح أخرى قيد التشغيل.'));
-      } else {
-        alert('❌ لم يتم بدء العملية: ' + (data.message || ''));
+        return;
       }
+      alertPipelineStartFailure(res, data);
     } catch (e) {
-      alert('❌ خطأ في الاتصال بالخادم: ' + e.message);
+      alert(`❌ خطأ في الاتصال بالخادم: ${e.message}`);
     }
   };
 
   const startNetScrapeOnly = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/run_net_profit_scrape`, {
-        method: 'POST',
-        headers: await withCsrfHeaders(),
-      });
-      const data = await res.json();
+      const { res, data } = await postJsonWithCsrf('api/run_net_profit_scrape');
       if (res.status === 202) {
         setNetJobStatus({ status: 'running' });
         setNetProgressOpen(true);
         startPollNet();
-      } else if (res.status === 409) {
-        alert('❌ ' + (data.hint_ar || data.hint || data.message || 'يوجد مهمة متصفح أخرى قيد التشغيل.'));
-      } else {
-        alert('❌ لم يتم بدء العملية: ' + (data.message || ''));
+        return;
       }
+      alertPipelineStartFailure(res, data);
     } catch (e) {
-      alert('❌ خطأ في الاتصال بالخادم: ' + e.message);
+      alert(`❌ خطأ في الاتصال بالخادم: ${e.message}`);
     }
   };
 
   const startBothViaPdfPipeline = async () => {
     try {
-      const resPdf = await fetch(`${API_URL}/api/run_pdfs_pipeline`, {
-        method: 'POST',
-        headers: await withCsrfHeaders(),
-      });
-      const dataPdf = await resPdf.json();
+      const { res: resPdf, data: dataPdf } = await postJsonWithCsrf('api/run_pdfs_pipeline');
       if (resPdf.status === 202) {
         setPdfJobStatus({ status: 'running' });
         setBothProgressOpen(true);
@@ -868,13 +166,11 @@ function App() { // NOSONAR
           setBothProgressOpen(false);
           setBothIsStopping(false);
         });
-      } else if (resPdf.status === 409) {
-        alert('❌ ' + (dataPdf.hint_ar || dataPdf.hint || dataPdf.message || 'يوجد مهمة متصفح أخرى قيد التشغيل.'));
-      } else {
-        alert('❌ لم يتم بدء عملية تحديث PDF: ' + (dataPdf.message || ''));
+        return;
       }
+      alertPipelineStartFailure(resPdf, dataPdf, '❌ لم يتم بدء عملية تحديث PDF: ');
     } catch (e) {
-      alert('❌ خطأ في الاتصال بالخادم: ' + e.message);
+      alert(`❌ خطأ في الاتصال بالخادم: ${e.message}`);
     }
   };
 
@@ -906,7 +202,7 @@ function App() { // NOSONAR
     setEvidenceLoading(true);
     setEvidenceError(null);
     try {
-      const response = await fetch(`${API_URL}/api/extractions/${companySymbol}?quarter=${quarter}`);
+      const response = await fetch(apiUrl(`api/extractions/${companySymbol}?quarter=${quarter}`));
       if (response.ok) {
         const data = await response.json();
         setEvidenceData(data);
@@ -924,7 +220,7 @@ function App() { // NOSONAR
   // Function to fetch net profit data
   const fetchNetProfitData = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/net-profit`);
+      const response = await fetch(apiUrl('api/net-profit'));
       if (response.ok) {
         const data = await response.json();
         setNetProfitData(data);
@@ -947,12 +243,8 @@ function App() { // NOSONAR
   const handleReset = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/refresh`, {
-        method: 'POST',
-        headers: await withCsrfHeaders(),
-      });
-      const data = await response.json();
-      if (data.status === 'success') {
+      const { res: refreshRes, data } = await postJsonWithCsrf('api/refresh');
+      if (refreshRes.ok && data.status === 'success') {
         // Optionally show a success message
         fetchData(); // Reload data after refresh
       } else {
@@ -969,7 +261,7 @@ function App() { // NOSONAR
   // Function to handle Excel export
   const handleExcelExport = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/export_excel?quarter=${quarterFilter}`);
+      const response = await fetch(apiUrl(`api/export_excel?quarter=${quarterFilter}`));
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -989,18 +281,14 @@ function App() { // NOSONAR
       globalThis.URL.revokeObjectURL(url);
       a.remove();
       
-      // Refetch user exports so the new file appears in the sidebar
-      setUserExportsLoading(true);
-      fetch(`${API_URL}/api/user_exports`)
-        .then(res => res.json())
-        .then(data => {
-          setUserExports(data);
-          setUserExportsLoading(false);
-        })
-        .catch(err => {
-          setUserExportsError('فشل في تحميل ملفات قام المستخدم بحفظها');
-          setUserExportsLoading(false);
-        });
+      fetchBackendJsonList('api/user_exports', {
+        setLoading: setUserExportsLoading,
+        setData: setUserExports,
+        setError: setUserExportsError,
+        errorMessage: 'فشل في تحميل ملفات قام المستخدم بحفظها',
+        devLog,
+        logTag: 'user_exports',
+      });
     } catch (error) {
       console.error('Error exporting to Excel:', error);
       alert('فشل في تصدير ملف Excel: ' + error.message);
@@ -1019,7 +307,7 @@ function App() { // NOSONAR
       });
 
     // Load quarterly flow data (CSV) from backend API
-    const loadQuarterlyFlowData = fetch(`${API_URL}/api/retained_earnings_flow.csv?t=${Date.now()}`)
+    const loadQuarterlyFlowData = fetch(apiUrl(`api/retained_earnings_flow.csv?t=${Date.now()}`))
       .then((res) => {
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
@@ -1050,50 +338,28 @@ function App() { // NOSONAR
 
   // Fetch archived snapshots
   useEffect(() => {
-    devLog('🔄 Fetching archived snapshots...');
-    setSnapshotsLoading(true);
-    fetch(`${API_URL}/api/ownership_snapshots`)
-      .then(res => {
-        devLog('📡 Snapshots response status:', res.status);
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        return res.json();
-      })
-      .then(data => {
-        devLog('✅ Snapshots data received:', data);
-        setSnapshots(data);
-        setSnapshotsLoading(false);
-      })
-      .catch(err => {
-        console.error('❌ Error fetching snapshots:', err);
-        setSnapshotsError('فشل في تحميل ملفات الفترات السابقة');
-        setSnapshotsLoading(false);
-      });
+    fetchBackendJsonList('api/ownership_snapshots', {
+      initialLog: '🔄 Fetching archived snapshots...',
+      setLoading: setSnapshotsLoading,
+      setData: setSnapshots,
+      setError: setSnapshotsError,
+      errorMessage: 'فشل في تحميل ملفات الفترات السابقة',
+      devLog,
+      logTag: 'snapshots',
+    });
   }, []);
 
   // Fetch user exports
   useEffect(() => {
-    devLog('🔄 Fetching user exports...');
-    setUserExportsLoading(true);
-    fetch(`${API_URL}/api/user_exports`)
-      .then(res => {
-        devLog('📡 User exports response status:', res.status);
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        return res.json();
-      })
-      .then(data => {
-        devLog('✅ User exports data received:', data);
-        setUserExports(data);
-        setUserExportsLoading(false);
-      })
-      .catch(err => {
-        console.error('❌ Error fetching user exports:', err);
-        setUserExportsError('فشل في تحميل ملفات قام المستخدم بحفظها');
-        setUserExportsLoading(false);
-      });
+    fetchBackendJsonList('api/user_exports', {
+      initialLog: '🔄 Fetching user exports...',
+      setLoading: setUserExportsLoading,
+      setData: setUserExports,
+      setError: setUserExportsError,
+      errorMessage: 'فشل في تحميل ملفات قام المستخدم بحفظها',
+      devLog,
+      logTag: 'user_exports',
+    });
   }, []);
 
   // Helper function to determine quarter from date
@@ -1170,7 +436,7 @@ function App() { // NOSONAR
   const confirmDeleteExport = async () => {
     if (!fileToDelete) return;
     try {
-      await fetch(`${API_URL}/api/user_exports/${fileToDelete.filename}`, {
+      await fetch(apiUrl(`api/user_exports/${fileToDelete.filename}`), {
         method: 'DELETE',
         headers: await withCsrfHeaders(),
       });
@@ -1193,12 +459,12 @@ function App() { // NOSONAR
       setLoading(true);
       
       // Build the API URL with custom date and filename
-      let apiUrl = `${API_URL}/api/export_excel?quarter=${quarterFilter}&custom_date=${customExportDate}`;
+      let exportUrl = apiUrl(`api/export_excel?quarter=${quarterFilter}&custom_date=${customExportDate}`);
       if (customFileName.trim()) {
-        apiUrl += `&custom_filename=${encodeURIComponent(customFileName.trim())}`;
+        exportUrl += `&custom_filename=${encodeURIComponent(customFileName.trim())}`;
       }
-      
-      const response = await fetch(apiUrl);
+
+      const response = await fetch(exportUrl);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -1220,18 +486,14 @@ function App() { // NOSONAR
       globalThis.URL.revokeObjectURL(url);
       a.remove();
       
-      // Refetch user exports so the new file appears in the sidebar
-      setUserExportsLoading(true);
-      fetch(`${API_URL}/api/user_exports`)
-        .then(res => res.json())
-        .then(data => {
-          setUserExports(data);
-          setUserExportsLoading(false);
-        })
-        .catch(err => {
-          setUserExportsError('فشل في تحميل ملفات قام المستخدم بحفظها');
-          setUserExportsLoading(false);
-        });
+      fetchBackendJsonList('api/user_exports', {
+        setLoading: setUserExportsLoading,
+        setData: setUserExports,
+        setError: setUserExportsError,
+        errorMessage: 'فشل في تحميل ملفات قام المستخدم بحفظها',
+        devLog,
+        logTag: 'user_exports',
+      });
 
       const successMessage = `✅ تم التصدير بنجاح!\n\n📁 اسم الملف: ${filename}\n📅 التاريخ: ${exportedDateLabel}\n🎯 الربع: ${quarterLabel}\n\nتم حفظ الملف في مجلد التنزيلات`;
       alert(successMessage);
@@ -1455,7 +717,7 @@ function App() { // NOSONAR
                   {pdfJobStatus?.current_symbol ? ` — الحالي: ${pdfJobStatus.current_symbol}` : ''}
                 </Typography>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST', headers: await withCsrfHeaders() }); } catch (e) { devLog('pdfs stop', e); } }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
+                  <Button variant="outlined" onClick={async () => { await postCsrfOptionalLog('api/pdfs/stop', devLog, 'pdfs stop'); }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
                 </Box>
               </Box>
             </Modal>
@@ -1516,8 +778,8 @@ function App() { // NOSONAR
                     variant="outlined"
                     onClick={async () => {
                       setBothIsStopping(true);
-                      try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST', headers: await withCsrfHeaders() }); } catch (e) { devLog('both stop pdfs', e); }
-                      try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST', headers: await withCsrfHeaders() }); } catch (e) { devLog('both stop net', e); }
+                      await postCsrfOptionalLog('api/pdfs/stop', devLog, 'both stop pdfs');
+                      await postCsrfOptionalLog('api/net_profit/stop', devLog, 'both stop net');
                     }}
                     disabled={bothIsStopping}
                     sx={{ color: bothIsStopping ? '#999' : '#b71c1c', borderColor: bothIsStopping ? '#ccc' : '#b71c1c' }}
@@ -1537,7 +799,7 @@ function App() { // NOSONAR
                   {netJobStatus?.current_symbol ? ` — الحالي: ${netJobStatus.current_symbol}` : ''}
                 </Typography>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST', headers: await withCsrfHeaders() }); } catch (e) { devLog('net profit stop', e); } }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
+                  <Button variant="outlined" onClick={async () => { await postCsrfOptionalLog('api/net_profit/stop', devLog, 'net profit stop'); }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
                 </Box>
               </Box>
             </Modal>

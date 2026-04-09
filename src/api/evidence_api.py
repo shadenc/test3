@@ -15,8 +15,11 @@ import sys
 from datetime import datetime
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
+import secrets
 import shutil
 import threading
+
+from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 
 # Only one Playwright/Chromium subprocess at a time (PDF downloader vs net-profit scraper).
 PLAYWRIGHT_SUBPROCESS_LOCK = threading.Lock()
@@ -662,9 +665,39 @@ def _run_net_profit_pipeline_task(project_root: Path, scraper: Path) -> None:  #
 
 def create_app():  # NOSONAR
     app = Flask(__name__)
-    # Allow CORS from React frontend - supports both localhost and production
+    # SECRET_KEY: required for signed CSRF tokens (Flask-WTF). Set FLASK_SECRET_KEY in production
+    # so Gunicorn workers share one key; otherwise each worker may reject tokens from another.
+    _sk = os.environ.get("FLASK_SECRET_KEY", "").strip()
+    if not _sk:
+        _sk = secrets.token_hex(32)
+        logger.warning(
+            "FLASK_SECRET_KEY not set; using ephemeral key (CSRF/session invalid across restarts "
+            "and multi-worker). Set FLASK_SECRET_KEY in production."
+        )
+    app.config["SECRET_KEY"] = _sk
+    app.config.setdefault("WTF_CSRF_TIME_LIMIT", None)
+    app.config.setdefault("WTF_CSRF_SSL_STRICT", False)
+
+    CSRFProtect(app)
+
+    # Allow CORS from React frontend; expose Content-Disposition for Excel export filename parsing.
     allowed_list = ALLOWED_ORIGINS.split(",") if ALLOWED_ORIGINS != "*" else "*"
-    CORS(app, origins=allowed_list)
+    CORS(
+        app,
+        origins=allowed_list,
+        allow_headers=["Content-Type", "X-CSRFToken", "X-Requested-With"],
+        expose_headers=["Content-Disposition"],
+    )
+
+    @app.errorhandler(CSRFError)
+    def _handle_csrf_error(exc):
+        logger.warning("CSRF validation failed: %s", exc)
+        return jsonify({"error": "CSRF token missing or invalid"}), 400
+
+    @app.route("/api/csrf-token", methods=["GET"])
+    def api_csrf_token():
+        """SPA fetches this once, then sends X-CSRFToken on POST/PUT/PATCH/DELETE (S4502)."""
+        return jsonify(csrf_token=generate_csrf())
 
     # Always resolve paths relative to the project root
     PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()

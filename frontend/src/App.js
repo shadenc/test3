@@ -43,6 +43,28 @@ function buildEvidenceScreenshotUrl(companySymbol, requestedQuarter) {
   return `${API_URL}/api/evidence/${companySymbol}.png?quarter=${q}&t=${Date.now()}`;
 }
 
+/** Flask-WTF CSRF: mutating API calls must send X-CSRFToken (see /api/csrf-token). */
+let csrfTokenPromise = null;
+
+async function getCsrfToken() {
+  if (!csrfTokenPromise) {
+    csrfTokenPromise = fetch(`${API_URL}/api/csrf-token`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`CSRF token HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((j) => j.csrf_token);
+  }
+  return csrfTokenPromise;
+}
+
+async function withCsrfHeaders(headersInit) {
+  const token = await getCsrfToken();
+  const h = new Headers(headersInit || {});
+  h.set('X-CSRFToken', token);
+  return h;
+}
+
 const devLog =
   process.env.NODE_ENV === 'development'
     ? (...args) => {
@@ -631,7 +653,7 @@ const EvidenceModal = ({ open, onClose, evidenceData, loading, error, onDataUpda
                         try {
                           const res = await fetch(`${API_URL}/api/correct_retained_earnings`, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: await withCsrfHeaders({ 'Content-Type': 'application/json' }),
                             body: JSON.stringify({
                               company_symbol: evidenceData.company_symbol || evidenceData.symbol,
                               correct_value: correctionValue,
@@ -793,7 +815,10 @@ function App() { // NOSONAR
 
   const startPdfPipelineOnly = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/run_pdfs_pipeline`, { method: 'POST' });
+      const res = await fetch(`${API_URL}/api/run_pdfs_pipeline`, {
+        method: 'POST',
+        headers: await withCsrfHeaders(),
+      });
       const data = await res.json();
       if (res.status === 202) {
         setPdfJobStatus({ status: 'running' });
@@ -811,7 +836,10 @@ function App() { // NOSONAR
 
   const startNetScrapeOnly = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/run_net_profit_scrape`, { method: 'POST' });
+      const res = await fetch(`${API_URL}/api/run_net_profit_scrape`, {
+        method: 'POST',
+        headers: await withCsrfHeaders(),
+      });
       const data = await res.json();
       if (res.status === 202) {
         setNetJobStatus({ status: 'running' });
@@ -829,7 +857,10 @@ function App() { // NOSONAR
 
   const startBothViaPdfPipeline = async () => {
     try {
-      const resPdf = await fetch(`${API_URL}/api/run_pdfs_pipeline`, { method: 'POST' });
+      const resPdf = await fetch(`${API_URL}/api/run_pdfs_pipeline`, {
+        method: 'POST',
+        headers: await withCsrfHeaders(),
+      });
       const dataPdf = await resPdf.json();
       if (resPdf.status === 202) {
         setPdfJobStatus({ status: 'running' });
@@ -919,6 +950,7 @@ function App() { // NOSONAR
     try {
       const response = await fetch(`${API_URL}/api/refresh`, {
         method: 'POST',
+        headers: await withCsrfHeaders(),
       });
       const data = await response.json();
       if (data.status === 'success') {
@@ -1139,7 +1171,10 @@ function App() { // NOSONAR
   const confirmDeleteExport = async () => {
     if (!fileToDelete) return;
     try {
-      await fetch(`${API_URL}/api/user_exports/${fileToDelete.filename}`, { method: 'DELETE' });
+      await fetch(`${API_URL}/api/user_exports/${fileToDelete.filename}`, {
+        method: 'DELETE',
+        headers: await withCsrfHeaders(),
+      });
       setUserExports((prev) => prev.filter(f => f.filename !== fileToDelete.filename));
     } catch (e) {
       devLog('delete user export', e);
@@ -1421,7 +1456,7 @@ function App() { // NOSONAR
                   {pdfJobStatus?.current_symbol ? ` — الحالي: ${pdfJobStatus.current_symbol}` : ''}
                 </Typography>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST' }); } catch (e) { devLog('pdfs stop', e); } }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
+                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST', headers: await withCsrfHeaders() }); } catch (e) { devLog('pdfs stop', e); } }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
                 </Box>
               </Box>
             </Modal>
@@ -1482,8 +1517,8 @@ function App() { // NOSONAR
                     variant="outlined"
                     onClick={async () => {
                       setBothIsStopping(true);
-                      try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST' }); } catch (e) { devLog('both stop pdfs', e); }
-                      try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST' }); } catch (e) { devLog('both stop net', e); }
+                      try { await fetch(`${API_URL}/api/pdfs/stop`, { method: 'POST', headers: await withCsrfHeaders() }); } catch (e) { devLog('both stop pdfs', e); }
+                      try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST', headers: await withCsrfHeaders() }); } catch (e) { devLog('both stop net', e); }
                     }}
                     disabled={bothIsStopping}
                     sx={{ color: bothIsStopping ? '#999' : '#b71c1c', borderColor: bothIsStopping ? '#ccc' : '#b71c1c' }}
@@ -1503,7 +1538,7 @@ function App() { // NOSONAR
                   {netJobStatus?.current_symbol ? ` — الحالي: ${netJobStatus.current_symbol}` : ''}
                 </Typography>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST' }); } catch (e) { devLog('net profit stop', e); } }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
+                  <Button variant="outlined" onClick={async () => { try { await fetch(`${API_URL}/api/net_profit/stop`, { method: 'POST', headers: await withCsrfHeaders() }); } catch (e) { devLog('net profit stop', e); } }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
                 </Box>
               </Box>
             </Modal>

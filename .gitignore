@@ -19,6 +19,12 @@ __pycache__/
 .scannerwork/
 report-task.txt
 
+# Test / coverage artifacts (generated in CI)
+coverage.xml
+.coverage
+htmlcov/
+frontend/coverage/
+
 # Data files (large/generated - not needed in repo)
 data/pdfs/
 data/runtime/

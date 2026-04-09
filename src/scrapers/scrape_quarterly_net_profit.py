@@ -8,7 +8,6 @@ import asyncio
 import json
 import os
 from datetime import datetime
-from secrets import SystemRandom
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -32,7 +31,10 @@ except ImportError:
         setup_stealth_browser,
     )
 
-_stealth_rng = SystemRandom()
+try:
+    from .stealth_random import stealth_randint, stealth_uniform
+except ImportError:
+    from stealth_random import stealth_randint, stealth_uniform
 
 # Constants
 OUTPUT_DIR = Path("data/results")
@@ -456,8 +458,8 @@ async def process_company_with_retry(  # NOSONAR
             page = await browser.new_page()
 
             # Add random mouse movement for stealth
-            await page.mouse.move(_stealth_rng.randint(100, 500), _stealth_rng.randint(100, 300))
-            await asyncio.sleep(_stealth_rng.uniform(0.5, 1.5))
+            await page.mouse.move(stealth_randint(100, 500), stealth_randint(100, 300))
+            await asyncio.sleep(stealth_uniform(0.5, 1.5))
 
             # Navigate to company profile
             if not await navigate_to_company_profile(page, symbol):
@@ -466,7 +468,7 @@ async def process_company_with_retry(  # NOSONAR
                     print(
                         f"🔄 Retrying navigation for {symbol} (attempt {attempt + 2}/{max_retries})..."
                     )
-                    await asyncio.sleep(_stealth_rng.uniform(2, 5))
+                    await asyncio.sleep(stealth_uniform(2, 5))
                     continue
                 return None
 
@@ -480,7 +482,7 @@ async def process_company_with_retry(  # NOSONAR
                     print(
                         f"🔄 Retrying financial info navigation for {symbol} (attempt {attempt + 2}/{max_retries})..."
                     )
-                    await asyncio.sleep(_stealth_rng.uniform(2, 5))
+                    await asyncio.sleep(stealth_uniform(2, 5))
                     continue
                 return None
 
@@ -494,7 +496,7 @@ async def process_company_with_retry(  # NOSONAR
                 print(
                     f"🔄 Retrying scraping for {symbol} (attempt {attempt + 2}/{max_retries})..."
                 )
-                await asyncio.sleep(_stealth_rng.uniform(2, 5))
+                await asyncio.sleep(stealth_uniform(2, 5))
 
         except TadawulAccessDeniedError:
             if page is not None:
@@ -511,7 +513,7 @@ async def process_company_with_retry(  # NOSONAR
                 except Exception:
                     pass
             if attempt < max_retries - 1:
-                await asyncio.sleep(_stealth_rng.uniform(2, 5))
+                await asyncio.sleep(stealth_uniform(2, 5))
 
     return None
 
@@ -605,7 +607,7 @@ async def scrape_all_companies_net_profit() -> int:  # NOSONAR
 
             # Add delay between companies
             if i < len(companies) and i < 10:
-                delay = _stealth_rng.uniform(3, 7)
+                delay = stealth_uniform(3, 7)
                 print(f"⏳ Waiting {delay:.1f} seconds before next company...")
                 loop = asyncio.get_running_loop()
                 deadline = loop.time() + delay

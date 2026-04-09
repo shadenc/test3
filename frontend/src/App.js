@@ -38,9 +38,8 @@ import PropTypes from 'prop-types';
 // API URL configuration - supports both localhost and production
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5003';
 
-function buildEvidenceScreenshotUrl(companySymbol, requestedQuarter) {
-  const q = requestedQuarter || 'Q1_2025';
-  return `${API_URL}/api/evidence/${companySymbol}.png?quarter=${q}&t=${Date.now()}`;
+function buildEvidenceScreenshotUrl(companySymbol, requestedQuarter = 'Q1_2025') {
+  return `${API_URL}/api/evidence/${companySymbol}.png?quarter=${requestedQuarter || 'Q1_2025'}&t=${Date.now()}`;
 }
 
 /** Flask-WTF CSRF: mutating API calls must send X-CSRFToken (see /api/csrf-token). */
@@ -146,10 +145,10 @@ function flowSignedTypographyParts(numValue) {
   return { color, sign };
 }
 
-const GRID_EMPTY_VALUE_SENTINELS = ['', 'null', 'undefined'];
+const GRID_EMPTY_VALUE_SENTINELS = new Set(['', 'null', 'undefined']);
 
 function isDataGridCellEmpty(value) {
-  return !value || GRID_EMPTY_VALUE_SENTINELS.includes(value);
+  return !value || GRID_EMPTY_VALUE_SENTINELS.has(value);
 }
 
 const EVIDENCE_EYE_ICON_SX = {

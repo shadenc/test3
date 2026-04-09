@@ -31,6 +31,25 @@ logger = logging.getLogger(__name__)
 PLAYWRIGHT_SUBPROCESS_LOCK = threading.Lock()
 
 
+def _write_progress_running_json(progress_path: Path, debug_label: str) -> None:
+    try:
+        progress_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(progress_path, "w", encoding="utf-8") as f:
+            json.dump({"status": "running", "processed": 0}, f)
+    except Exception as e:
+        _debug_ignored(debug_label, e)
+
+
+def _run_script_checked(project_root: Path, script: Path, **kwargs: object) -> None:
+    subprocess.run(
+        [sys.executable, str(script)],
+        cwd=str(project_root),
+        check=True,
+        text=True,
+        **kwargs,
+    )
+
+
 def run_quarterly_refresh_and_archive(project_root: Path) -> None:  # NOSONAR
     """
     Quarterly refresh: recalc, screenshots, export, archive.
@@ -303,13 +322,9 @@ def _run_pdfs_pipeline_task(project_root: Path, downloader: Path, extractor: Pat
                 net_stop_stale.unlink()
         except Exception as e:
             _debug_ignored("clear stale stop flags before PDF pipeline", e)
-        try:
-            progress_path = project_root / RUNTIME_PDFS_PROGRESS_JSON
-            progress_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(progress_path, "w", encoding="utf-8") as f:
-                json.dump({"status": "running", "processed": 0}, f)
-        except Exception as e:
-            _debug_ignored("write PDFs progress running", e)
+        _write_progress_running_json(
+            project_root / RUNTIME_PDFS_PROGRESS_JSON, "write PDFs progress running"
+        )
         logger.info("[Pipeline] Starting hybrid downloader...")
         env = os.environ.copy()
         env.setdefault("STOP_FLAG_FILE", str(project_root / RUNTIME_STOP_PDFS_FLAG))
@@ -344,36 +359,19 @@ def _run_pdfs_pipeline_task(project_root: Path, downloader: Path, extractor: Pat
         _debug_ignored("check stop flag after PDF downloader", e)
     try:
         logger.info("[Pipeline] Starting retained earnings extractor...")
-        subprocess.run(
-            [sys.executable, str(extractor)],
-            cwd=str(project_root),
-            check=True,
-            text=True,
-        )
+        _run_script_checked(project_root, extractor)
     except subprocess.CalledProcessError as e:
         logger.error(f"[Pipeline] Extractor failed: {e}")
         return
     try:
         logger.info("[Pipeline] Recalculating reinvested earnings...")
-        calc = project_root / SCRIPT_CALCULATE_REINVESTED
-        subprocess.run(
-            [sys.executable, str(calc)],
-            cwd=str(project_root),
-            check=True,
-            text=True,
-        )
+        _run_script_checked(project_root, project_root / SCRIPT_CALCULATE_REINVESTED)
     except subprocess.CalledProcessError as e:
         logger.error(f"[Pipeline] Calculation failed: {e}")
         return
     try:
         logger.info("[Pipeline] Regenerating evidence screenshots...")
-        shots = project_root / SCRIPT_GENERATE_SCREENSHOTS
-        subprocess.run(
-            [sys.executable, str(shots)],
-            cwd=str(project_root),
-            check=True,
-            text=True,
-        )
+        _run_script_checked(project_root, project_root / SCRIPT_GENERATE_SCREENSHOTS)
     except subprocess.CalledProcessError as e:
         logger.warning(f"[Pipeline] Screenshot regeneration failed: {e}")
     try:
@@ -403,13 +401,10 @@ def _run_net_profit_pipeline_task(project_root: Path, scraper: Path) -> None:  #
                 net_stop_flag.unlink()
         except Exception as e:
             _debug_ignored("clear net profit stop flag before scrape", e)
-        try:
-            net_progress = project_root / RUNTIME_NET_PROGRESS_JSON
-            net_progress.parent.mkdir(parents=True, exist_ok=True)
-            with open(net_progress, "w", encoding="utf-8") as f:
-                json.dump({"status": "running", "processed": 0}, f)
-        except Exception as e:
-            _debug_ignored("write net profit progress running", e)
+        _write_progress_running_json(
+            project_root / RUNTIME_NET_PROGRESS_JSON,
+            "write net profit progress running",
+        )
         env = os.environ.copy()
         env.setdefault(
             "STOP_FLAG_FILE", str(project_root / RUNTIME_STOP_NET_FLAG)
@@ -454,13 +449,7 @@ def _run_net_profit_pipeline_task(project_root: Path, scraper: Path) -> None:  #
         logger.info(
             "[NetProfit] Recalculating flows after net profit update..."
         )
-        calc = project_root / SCRIPT_CALCULATE_REINVESTED
-        subprocess.run(
-            [sys.executable, str(calc)],
-            cwd=str(project_root),
-            check=True,
-            text=True,
-        )
+        _run_script_checked(project_root, project_root / SCRIPT_CALCULATE_REINVESTED)
         logger.info("[NetProfit] ✅ Completed")
     except subprocess.CalledProcessError as e:
         logger.error(f"[NetProfit] Recalculation failed: {e}")

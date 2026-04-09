@@ -60,7 +60,7 @@ from src.api.evidence_helpers import (
     _safe_log_quarter_param,
     _safe_log_symbol,
     json_file_not_found_response,
-    json_internal_error_response,
+    route_internal_error,
 )
 from src.api.evidence_jobs import (
     PLAYWRIGHT_SUBPROCESS_LOCK,
@@ -146,12 +146,12 @@ def create_app():  # NOSONAR
             return send_file(str(screenshot_path), mimetype="image/png")
             
         except Exception as e:
-            logger.error(
+            return route_internal_error(
+                logger,
                 "Error serving screenshot for %s: %s",
                 _safe_log_symbol(company_symbol),
                 e,
             )
-            return json_internal_error_response()
 
     @app.route("/api/extractions", methods=["GET"])
     def get_extractions():
@@ -189,8 +189,7 @@ def create_app():  # NOSONAR
             )
             
         except Exception as e:
-            logger.error(f"Error serving extractions: {e}")
-            return json_internal_error_response()
+            return route_internal_error(logger, "Error serving extractions: %s", e)
 
     @app.route("/api/extractions/<company_symbol>", methods=["GET"])
     def get_extraction_by_company(company_symbol):
@@ -223,12 +222,12 @@ def create_app():  # NOSONAR
             return jsonify(company_result)
             
         except Exception as e:
-            logger.error(
+            return route_internal_error(
+                logger,
                 "Error serving extraction for %s: %s",
                 _safe_log_symbol(company_symbol),
                 e,
             )
-            return json_internal_error_response()
 
     @app.route("/api/evidence/metadata", methods=["GET"])
     def get_evidence_metadata():
@@ -247,8 +246,7 @@ def create_app():  # NOSONAR
             )
             
         except Exception as e:
-            logger.error(f"Error serving evidence metadata: {e}")
-            return json_internal_error_response()
+            return route_internal_error(logger, "Error serving evidence metadata: %s", e)
 
     @app.route("/api/evidence/<company_symbol>", methods=["GET"])
     def get_evidence(company_symbol):
@@ -289,12 +287,12 @@ def create_app():  # NOSONAR
             return jsonify(response)
             
         except Exception as e:
-            logger.error(
+            return route_internal_error(
+                logger,
                 "Error serving evidence for %s: %s",
                 _safe_log_symbol(company_symbol),
                 e,
             )
-            return json_internal_error_response()
 
     @app.route("/api/retained_earnings_flow.csv", methods=["GET"])
     def get_retained_earnings_flow_csv():
@@ -340,8 +338,7 @@ def create_app():  # NOSONAR
             )
             
         except Exception as e:
-            logger.error(f"Error serving CSV: {e}")
-            return json_internal_error_response()
+            return route_internal_error(logger, "Error serving CSV: %s", e)
 
     @app.route("/api/refresh", methods=["POST"])
     def refresh_data():
@@ -1420,12 +1417,12 @@ def create_app():  # NOSONAR
             return jsonify(mapping_info)
             
         except Exception as e:
-            logger.error(
+            return route_internal_error(
+                logger,
                 "Error getting quarter mapping for %s: %s",
                 _safe_log_symbol(company_symbol),
                 e,
             )
-            return json_internal_error_response()
 
     @app.route("/api/evidence/<company_symbol>/previous_quarter", methods=["GET"])
     def get_previous_quarter_evidence(company_symbol):
@@ -1489,12 +1486,12 @@ def create_app():  # NOSONAR
             )
             
         except Exception as e:
-            logger.error(
+            return route_internal_error(
+                logger,
                 "Error getting previous quarter evidence for %s: %s",
                 _safe_log_symbol(company_symbol),
                 e,
             )
-            return json_internal_error_response()
 
     @app.route("/api/trigger_quarterly_archive", methods=["POST"])
     def trigger_quarterly_archive():

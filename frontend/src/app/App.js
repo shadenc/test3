@@ -28,7 +28,6 @@ import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import MenuItem from '@mui/material/MenuItem';
 import Add from '@mui/icons-material/Add';
-import LinearProgress from '@mui/material/LinearProgress';
 import {
   API_URL,
   apiUrl,
@@ -39,6 +38,7 @@ import {
 import { startJobStatusPoll } from '../services/statusPolling';
 import {
   EvidenceModal,
+  JobProgressShell,
   buildCustomDateExportErrorMessage,
   buildDataGridColumns,
   combineDashboardRows,
@@ -707,20 +707,15 @@ function App() { // NOSONAR
               </Button>
             </Tooltip>
 
-            {/* PDFs Progress Modal */}
-            <Modal open={pdfProgressOpen} onClose={() => {}}>
-              <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 420, bgcolor: 'background.paper', borderRadius: 2, boxShadow: 24, p: 3, direction: 'rtl' }}>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1e6641', mb: 1 }}>تحديث PDF قيد التنفيذ</Typography>
-                <LinearProgress color="success" />
-                <Typography sx={{ fontSize: 13, color: '#1e6641', mt: 1 }}>
-                  الحالة: {pdfJobStatus?.status || 'جاري التنفيذ'} — المُنجز: {pdfJobStatus?.processed || 0}
-                  {pdfJobStatus?.current_symbol ? ` — الحالي: ${pdfJobStatus.current_symbol}` : ''}
-                </Typography>
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button variant="outlined" onClick={async () => { await postCsrfOptionalLog('api/pdfs/stop', devLog, 'pdfs stop'); }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
-                </Box>
+            <JobProgressShell open={pdfProgressOpen} width={420} title="تحديث PDF قيد التنفيذ" titleColor="#1e6641" progressColor="success">
+              <Typography sx={{ fontSize: 13, color: '#1e6641', mt: 1 }}>
+                الحالة: {pdfJobStatus?.status || 'جاري التنفيذ'} — المُنجز: {pdfJobStatus?.processed || 0}
+                {pdfJobStatus?.current_symbol ? ` — الحالي: ${pdfJobStatus.current_symbol}` : ''}
+              </Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                <Button variant="outlined" onClick={async () => { await postCsrfOptionalLog('api/pdfs/stop', devLog, 'pdfs stop'); }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
               </Box>
-            </Modal>
+            </JobProgressShell>
 
             {/* Update Selection Modal */}
             <Dialog open={updateModalOpen} onClose={() => setUpdateModalOpen(false)}>
@@ -755,54 +750,43 @@ function App() { // NOSONAR
               </DialogActions>
             </Dialog>
 
-            {/* Combined Progress Modal for Both */}
-            <Modal open={bothProgressOpen} onClose={() => {}}>
-              <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 520, bgcolor: 'background.paper', borderRadius: 2, boxShadow: 24, p: 3, direction: 'rtl' }}>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1e6641', mb: 2 }}>التحديث قيد التنفيذ</Typography>
-                <LinearProgress color="success" />
-                {/* Finalizing hint */}
-                {((pdfJobStatus?.status === 'finalizing') || (netJobStatus?.status === 'finalizing')) && (
-                  <Typography sx={{ mt: 1, fontSize: 13, color: '#555' }}>
-                    جارٍ الإنهاء: إيقاف العمليات، حساب النتائج، وتحديث اللوحة. يرجى الانتظار حتى يكتمل التحديث.
-                  </Typography>
-                )}
-                <Typography sx={{ fontSize: 13, color: '#1e6641', mt: 1 }}>
-                  الأرباح المبقاة: {pdfJobStatus?.status || 'جاري التنفيذ'}{pdfJobStatus?.current_symbol ? ` — ${pdfJobStatus.current_symbol}` : ''}
+            <JobProgressShell open={bothProgressOpen} width={520} title="التحديث قيد التنفيذ" titleColor="#1e6641" progressColor="success" titleMb={2}>
+              {((pdfJobStatus?.status === 'finalizing') || (netJobStatus?.status === 'finalizing')) && (
+                <Typography sx={{ mt: 1, fontSize: 13, color: '#555' }}>
+                  جارٍ الإنهاء: إيقاف العمليات، حساب النتائج، وتحديث اللوحة. يرجى الانتظار حتى يكتمل التحديث.
                 </Typography>
-                <Typography sx={{ fontSize: 13, color: '#ff9800' }}>
-                  صافي الربح: يُحدَّث مع كل شركة ضمن خط التنزيل أعلاه (لا مهمة منفصلة).
-                  {pdfJobStatus?.current_symbol ? ` — آخر رمز: ${pdfJobStatus.current_symbol}` : ''}
-                </Typography>
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button
-                    variant="outlined"
-                    onClick={async () => {
-                      setBothIsStopping(true);
-                      await postCsrfOptionalLog('api/pdfs/stop', devLog, 'both stop pdfs');
-                      await postCsrfOptionalLog('api/net_profit/stop', devLog, 'both stop net');
-                    }}
-                    disabled={bothIsStopping}
-                    sx={{ color: bothIsStopping ? '#999' : '#b71c1c', borderColor: bothIsStopping ? '#ccc' : '#b71c1c' }}
-                  >
-                    {bothIsStopping ? 'جاري الإنهاء...' : 'إيقاف'}
-                  </Button>
-                </Box>
+              )}
+              <Typography sx={{ fontSize: 13, color: '#1e6641', mt: 1 }}>
+                الأرباح المبقاة: {pdfJobStatus?.status || 'جاري التنفيذ'}{pdfJobStatus?.current_symbol ? ` — ${pdfJobStatus.current_symbol}` : ''}
+              </Typography>
+              <Typography sx={{ fontSize: 13, color: '#ff9800' }}>
+                صافي الربح: يُحدَّث مع كل شركة ضمن خط التنزيل أعلاه (لا مهمة منفصلة).
+                {pdfJobStatus?.current_symbol ? ` — آخر رمز: ${pdfJobStatus.current_symbol}` : ''}
+              </Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                <Button
+                  variant="outlined"
+                  onClick={async () => {
+                    setBothIsStopping(true);
+                    await postCsrfOptionalLog('api/pdfs/stop', devLog, 'both stop pdfs');
+                    await postCsrfOptionalLog('api/net_profit/stop', devLog, 'both stop net');
+                  }}
+                  disabled={bothIsStopping}
+                  sx={{ color: bothIsStopping ? '#999' : '#b71c1c', borderColor: bothIsStopping ? '#ccc' : '#b71c1c' }}
+                >
+                  {bothIsStopping ? 'جاري الإنهاء...' : 'إيقاف'}
+                </Button>
               </Box>
-            </Modal>
-            {/* Net Profit Progress Modal */}
-            <Modal open={netProgressOpen} onClose={() => {}}>
-              <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 420, bgcolor: 'background.paper', borderRadius: 2, boxShadow: 24, p: 3, direction: 'rtl' }}>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#ff9800', mb: 1 }}>تحديث صافي الربح قيد التنفيذ</Typography>
-                <LinearProgress color="warning" />
-                <Typography sx={{ fontSize: 13, color: '#ff9800', mt: 1 }}>
-                  الحالة: {netJobStatus?.status || 'جاري التنفيذ'} — المُنجز: {netJobStatus?.processed || 0}
-                  {netJobStatus?.current_symbol ? ` — الحالي: ${netJobStatus.current_symbol}` : ''}
-                </Typography>
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button variant="outlined" onClick={async () => { await postCsrfOptionalLog('api/net_profit/stop', devLog, 'net profit stop'); }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
-                </Box>
+            </JobProgressShell>
+            <JobProgressShell open={netProgressOpen} width={420} title="تحديث صافي الربح قيد التنفيذ" titleColor="#ff9800" progressColor="warning">
+              <Typography sx={{ fontSize: 13, color: '#ff9800', mt: 1 }}>
+                الحالة: {netJobStatus?.status || 'جاري التنفيذ'} — المُنجز: {netJobStatus?.processed || 0}
+                {netJobStatus?.current_symbol ? ` — الحالي: ${netJobStatus.current_symbol}` : ''}
+              </Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                <Button variant="outlined" onClick={async () => { await postCsrfOptionalLog('api/net_profit/stop', devLog, 'net profit stop'); }} sx={{ color: '#b71c1c', borderColor: '#b71c1c' }}>إيقاف</Button>
               </Box>
-            </Modal>
+            </JobProgressShell>
           </Box>
         </Box>
         <Box sx={{ display: "flex", gap: 2, alignItems: "center", mb: 2 }}>

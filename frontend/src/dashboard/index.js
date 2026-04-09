@@ -6,3 +6,4 @@ export * from './quarterConfig';
 export * from './dataUtils';
 export { buildDataGridColumns, renderRetainedQuarterGridCell, renderSignedSarFlowGridCell } from './DashboardDataGrid';
 export { EvidenceModal } from './EvidenceModal';
+export { JobProgressShell } from './JobProgressShell';

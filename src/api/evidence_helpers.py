@@ -118,6 +118,12 @@ def json_file_not_found_response():
     return jsonify({"error": MSG_FILE_NOT_FOUND}), 404
 
 
+def route_internal_error(logger: logging.Logger, fmt: str, *args: object) -> tuple:
+    """Log route failure and return standard 500 JSON (Sonar route-handler dedupe)."""
+    logger.error(fmt, *args)
+    return json_internal_error_response()
+
+
 def _playwright_busy_response(project_root: Path):
     """409 when PDF downloader or net-profit scraper already holds the Playwright lock."""
     message = (

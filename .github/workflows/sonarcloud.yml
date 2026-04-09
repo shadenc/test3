@@ -1,10 +1,10 @@
-# SonarCloud — one-time setup (≈2 min):
-# 1) https://sonarcloud.io → Log in with GitHub → Add project → Import this repo
-# 2) GitHub → repo → Settings → Secrets and variables → Actions → New repository secret:
-#    SONAR_TOKEN          (from SonarCloud: My Account → Security)
-#    SONAR_ORGANIZATION   (SonarCloud org key, e.g. your-github-username)
-#    SONAR_PROJECT_KEY    (shown in SonarCloud project overview, e.g. org_saudi-investment-analyzer)
-# 3) Push to main — workflow runs on push & PR.
+# SonarCloud: use CI analysis only (NOT "Automatic Analysis" — multi-language repos fail that mode).
+#
+# One secret in GitHub: Settings → Secrets → Actions → SONAR_TOKEN
+#   (SonarCloud → Account avatar → My Account → Security → Generate token)
+#
+# In SonarCloud: open project shadenc_test3 → Administration → Analysis Method →
+#   choose "GitHub Actions" / turn OFF Automatic Analysis if it keeps failing.
 
 name: SonarCloud
 
@@ -30,7 +30,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install frontend dependencies (for JS/TS analysis)
+      - name: Install frontend dependencies
         run: npm ci
         working-directory: frontend
 
@@ -39,7 +39,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}

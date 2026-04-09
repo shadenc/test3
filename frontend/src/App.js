@@ -68,25 +68,52 @@ function trimCsvRowCells(row) {
   return cleanedRow;
 }
 
+/** Single source for quarter → API keys and column header suffixes (Sonar duplication). */
+const DASHBOARD_QUARTER_CONFIG = {
+  Q1: {
+    evidencePrev: 'Annual_2024',
+    evidenceCurr: 'Q1_2025',
+    netProfitKey: 'Q1 2025',
+    previousHeader: '2024Q4',
+    currentHeader: '2025Q1',
+  },
+  Q2: {
+    evidencePrev: 'Q1_2025',
+    evidenceCurr: 'Q2_2025',
+    netProfitKey: 'Q2 2025',
+    previousHeader: '2025Q1',
+    currentHeader: '2025Q2',
+  },
+  Q3: {
+    evidencePrev: 'Q2_2025',
+    evidenceCurr: 'Q3_2025',
+    netProfitKey: 'Q3 2025',
+    previousHeader: '2025Q2',
+    currentHeader: '2025Q3',
+  },
+  Q4: {
+    evidencePrev: 'Q3_2025',
+    evidenceCurr: 'Q4_2025',
+    netProfitKey: 'Q4 2025',
+    previousHeader: '2025Q3',
+    currentHeader: '2025Q4',
+  },
+};
+
+function quarterDashboardConfig(quarterFilter) {
+  return DASHBOARD_QUARTER_CONFIG[quarterFilter] || DASHBOARD_QUARTER_CONFIG.Q1;
+}
+
 function evidenceQuarterForPreviousColumn(quarterFilter) {
-  if (quarterFilter === 'Q1') return 'Annual_2024';
-  if (quarterFilter === 'Q2') return 'Q1_2025';
-  if (quarterFilter === 'Q3') return 'Q2_2025';
-  return 'Q3_2025';
+  return quarterDashboardConfig(quarterFilter).evidencePrev;
 }
 
 function evidenceQuarterForCurrentColumn(quarterFilter) {
-  if (quarterFilter === 'Q1') return 'Q1_2025';
-  if (quarterFilter === 'Q2') return 'Q2_2025';
-  if (quarterFilter === 'Q3') return 'Q3_2025';
-  return 'Q4_2025';
+  return quarterDashboardConfig(quarterFilter).evidenceCurr;
 }
 
 function netProfitQuarterKeyFromFilter(quarterFilter) {
-  if (quarterFilter === 'Q1') return 'Q1 2025';
-  if (quarterFilter === 'Q2') return 'Q2 2025';
-  if (quarterFilter === 'Q3') return 'Q3 2025';
-  return 'Q4 2025';
+  return quarterDashboardConfig(quarterFilter).netProfitKey;
 }
 
 function flowSignedTypographyParts(numValue) {
@@ -183,35 +210,12 @@ function combineDashboardRows(foreignOwnershipData, quarterlyFlowData, onEvidenc
   return mergeOwnershipWithQuarterlyFlow(foreignOwnershipData, flowMap, onEvidenceClick);
 }
 
-/** DataGrid column headers (avoid nested ternaries; Sonar S3358). */
 function previousQuarterHeaderLabel(qf) {
-  switch (qf) {
-    case 'Q1':
-      return '2024Q4';
-    case 'Q2':
-      return '2025Q1';
-    case 'Q3':
-      return '2025Q2';
-    case 'Q4':
-      return '2025Q3';
-    default:
-      return '2024Q4';
-  }
+  return quarterDashboardConfig(qf).previousHeader;
 }
 
 function currentQuarterHeaderLabel(qf) {
-  switch (qf) {
-    case 'Q1':
-      return '2025Q1';
-    case 'Q2':
-      return '2025Q2';
-    case 'Q3':
-      return '2025Q3';
-    case 'Q4':
-      return '2025Q4';
-    default:
-      return '2025Q1';
-  }
+  return quarterDashboardConfig(qf).currentHeader;
 }
 
 /** Parse retained-earnings flow CSV; extracted to limit callback nesting (Sonar). */

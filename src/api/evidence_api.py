@@ -135,6 +135,18 @@ def _scheduler_run_script(project_root: Path, log_label: str, script: str) -> No
     )
 
 
+def _run_python_script(project_root: Path, script: str, **kwargs):
+    """Run `python script` from repo root; merges kwargs into subprocess.run (dedupes /api/refresh)."""
+    opts = {
+        "cwd": str(project_root),
+        "check": True,
+        "capture_output": True,
+        "text": True,
+    }
+    opts.update(kwargs)
+    return subprocess.run([sys.executable, script], **opts)
+
+
 def run_quarterly_refresh_and_archive(project_root: Path) -> None:  # NOSONAR
     """
     Quarterly refresh: recalc, screenshots, export, archive.
@@ -673,10 +685,10 @@ def create_app():  # NOSONAR
             screenshot_files = _list_quarter_evidence_screenshots(
                 SCREENSHOTS_DIR, company_symbol, quarter
             )
-
+            
             if not screenshot_files:
                 return jsonify({"error": "Evidence screenshot not found"}), 404
-
+            
             # Use the first available screenshot
             screenshot_path = screenshot_files[0]
             logger.info(
@@ -687,7 +699,7 @@ def create_app():  # NOSONAR
             )
 
             return send_file(str(screenshot_path), mimetype="image/png")
-
+            
         except Exception as e:
             logger.error(
                 "Error serving screenshot for %s: %s",
@@ -703,7 +715,7 @@ def create_app():  # NOSONAR
         """
         try:
             results = _load_retained_earnings_results(RESULTS_FILE)
-
+            
             # Load evidence metadata if available
             evidence_metadata = {}
             if METADATA_FILE.exists():
@@ -714,7 +726,7 @@ def create_app():  # NOSONAR
                             "has_evidence": True,
                             "screenshot_path": item["screenshot_path"],
                         }
-
+            
             # Add evidence information to results
             for result in results:
                 company_symbol = result["company_symbol"]
@@ -730,7 +742,7 @@ def create_app():  # NOSONAR
                     "successful": len([r for r in results if r["success"]]),
                 }
             )
-
+            
         except Exception as e:
             logger.error(f"Error serving extractions: {e}")
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
@@ -746,10 +758,10 @@ def create_app():  # NOSONAR
 
             results = _load_retained_earnings_results(RESULTS_FILE)
             company_result = _find_company_retained_result(results, company_symbol)
-
+            
             if not company_result:
                 return jsonify({"error": "Company not found"}), 404
-
+            
             screenshot_files = _list_quarter_evidence_screenshots(
                 SCREENSHOTS_DIR, company_symbol, quarter
             )
@@ -762,9 +774,9 @@ def create_app():  # NOSONAR
                 "requested_quarter": quarter,
                 "found_screenshots": [f.name for f in screenshot_files],
             }
-
+            
             return jsonify(company_result)
-
+            
         except Exception as e:
             logger.error(
                 "Error serving extraction for %s: %s",
@@ -781,14 +793,14 @@ def create_app():  # NOSONAR
         try:
             if not METADATA_FILE.exists():
                 return jsonify({"evidence_screenshots": []})
-
+            
             with open(METADATA_FILE, "r", encoding="utf-8") as f:
                 metadata = json.load(f)
-
+            
             return jsonify(
                 {"evidence_screenshots": metadata, "total_screenshots": len(metadata)}
             )
-
+            
         except Exception as e:
             logger.error(f"Error serving evidence metadata: {e}")
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
@@ -801,10 +813,10 @@ def create_app():  # NOSONAR
         try:
             results = _load_retained_earnings_results(RESULTS_FILE)
             company_result = _find_company_retained_result(results, company_symbol)
-
+            
             if not company_result:
                 return jsonify({"error": "Company not found"}), 404
-
+            
             # Load evidence metadata
             evidence_data = None
             if METADATA_FILE.exists():
@@ -814,7 +826,7 @@ def create_app():  # NOSONAR
                         if item["company_symbol"] == company_symbol:
                             evidence_data = item
                             break
-
+            
             # Prepare response
             response = {
                 "company_symbol": company_symbol,
@@ -824,13 +836,13 @@ def create_app():  # NOSONAR
                 "screenshot_url": None,
                 "context": company_result.get("raw_match", ""),
             }
-
+            
             # Add screenshot URL if available
             if evidence_data:
                 response["screenshot_url"] = f"/api/evidence/{company_symbol}.png"
-
+            
             return jsonify(response)
-
+            
         except Exception as e:
             logger.error(
                 "Error serving evidence for %s: %s",
@@ -846,10 +858,10 @@ def create_app():  # NOSONAR
             csv_path = PROJECT_ROOT / FLOW_CSV_RELPATH
             if not csv_path.exists():
                 return "No data available", 404
-
+                
             with open(csv_path, "r", encoding="utf-8") as f:
                 csv_content = f.read()
-
+            
             response = make_response(csv_content)
             response.headers["Content-Type"] = "text/csv; charset=utf-8"
             response.headers["Content-Disposition"] = (
@@ -860,7 +872,7 @@ def create_app():  # NOSONAR
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
             return response
-
+            
         except Exception as e:
             logger.error("Error serving retained earnings flow CSV: %s", e)
             return f"Error: {str(e)}", 500
@@ -874,14 +886,14 @@ def create_app():  # NOSONAR
             if not CSV_FILE.exists():
                 logger.warning(f"CSV file not found: {CSV_FILE}")
                 return jsonify({"error": "Data not available"}), 404
-
+            
             return send_file(
-                str(CSV_FILE),
+                str(CSV_FILE), 
                 mimetype="text/csv",
                 as_attachment=True,
                 download_name="reinvested_earnings_results.csv",
             )
-
+            
         except Exception as e:
             logger.error(f"Error serving CSV: {e}")
             return jsonify({"error": MSG_INTERNAL_ERROR}), 500
@@ -894,19 +906,15 @@ def create_app():  # NOSONAR
         """
         try:
             logger.info("Starting data refresh (ownership + recalc + screenshots)...")
-
+            
             # 0. Update ownership data (scraper) via subprocess to avoid browser/runtime conflicts
             try:
                 logger.info(
                     "Updating foreign ownership via Tadawul scraper (subprocess)..."
                 )
                 scraper_script = PROJECT_ROOT / "src/scrapers/ownership.py"
-                result = subprocess.run(
-                    [sys.executable, str(scraper_script)],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=600,
+                result = _run_python_script(
+                    PROJECT_ROOT, str(scraper_script), timeout=600
                 )
                 logger.info(MSG_OWNERSHIP_UPDATED_OK)
                 if result.stdout:
@@ -923,49 +931,39 @@ def create_app():  # NOSONAR
                 )
             except Exception as e:
                 logger.warning(f"Ownership update failed or skipped: {e}")
-
+            
             # 1. Recalculate reinvested earnings (this is the main step)
             logger.info("Recalculating reinvested earnings...")
             try:
-                subprocess.run(
-                    [sys.executable, SCRIPT_CALCULATE_REINVESTED],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
+                _run_python_script(PROJECT_ROOT, SCRIPT_CALCULATE_REINVESTED)
                 logger.info("Reinvested earnings calculation completed successfully")
             except subprocess.CalledProcessError as e:
                 logger.error(f"Error in reinvested earnings calculation: {e}")
                 return jsonify(
                     {
-                        "status": "error",
+                    "status": "error", 
                         "message": f"Failed to recalculate earnings: {e.stderr}",
                     }
                 ), 500
-
+            
             # 2. Regenerate evidence screenshots (optional)
             logger.info("Regenerating evidence screenshots...")
             try:
-                subprocess.run(
-                    [sys.executable, SCRIPT_GENERATE_SCREENSHOTS],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
+                _run_python_script(PROJECT_ROOT, SCRIPT_GENERATE_SCREENSHOTS)
                 logger.info("Evidence screenshots regeneration completed successfully")
             except subprocess.CalledProcessError as e:
                 logger.warning(
                     "Evidence screenshots regeneration failed (non-fatal): %s", e
                 )
-
+            
             logger.info("Data refresh completed successfully")
             return jsonify(
                 {
-                    "status": "success",
+                "status": "success", 
                     "message": "Data refreshed successfully (ownership + recalculation + screenshots).",
                 }
             ), 200
-
+            
         except Exception as e:
             logger.error(f"Error during data refresh: {e}")
             return jsonify(
@@ -979,8 +977,8 @@ def create_app():  # NOSONAR
         """
         return jsonify(
             {
-                "status": "healthy",
-                "screenshots_dir": str(SCREENSHOTS_DIR),
+            "status": "healthy",
+            "screenshots_dir": str(SCREENSHOTS_DIR),
                 "screenshots_available": SCREENSHOTS_DIR.exists(),
             }
         )
@@ -1292,7 +1290,7 @@ def create_app():  # NOSONAR
         logger.info(
             f"Received correction request: company_symbol={company_symbol}, field_type={field_type}, new_value={new_value}, quarter={quarter}"
         )
-
+        
         if not company_symbol or not field_type or new_value is None:
             logger.error(
                 f"Missing required fields: company_symbol={company_symbol}, field_type={field_type}, new_value={new_value}"
@@ -1307,11 +1305,11 @@ def create_app():  # NOSONAR
             if not csv_path.exists():
                 logger.error(f"CSV file not found: {csv_path}")
                 return jsonify({"error": "Flow data file not found"}), 404
-
+            
             # Read the CSV data
             df = pd.read_csv(csv_path)
             logger.info(f"CSV loaded with {len(df)} rows, columns: {list(df.columns)}")
-
+            
             # Find the row for this company and quarter
             company_row = df[
                 (df["company_symbol"] == int(company_symbol))
@@ -1328,9 +1326,9 @@ def create_app():  # NOSONAR
                         "error": f"Company {company_symbol} with quarter {quarter} not found in flow data"
                     }
                 ), 404
-
+            
             logger.info(f"Found company row: {company_row.iloc[0].to_dict()}")
-
+            
             # Update the specific field based on field_type
             field_mapping = {
                 "previous_quarter": "previous_value",
@@ -1341,30 +1339,30 @@ def create_app():  # NOSONAR
                 "net_profit_foreign_investor": "net_profit_foreign_investor",
                 "distributed_profits_foreign_investor": "distributed_profits_foreign_investor",
             }
-
+            
             csv_field = field_mapping.get(field_type)
             if not csv_field:
                 logger.error(f"Unknown field type: {field_type}")
                 return jsonify({"error": f"Unknown field type: {field_type}"}), 400
-
+            
             # Check if the field exists in the CSV
             if csv_field not in df.columns:
                 logger.error(
                     f"Field {csv_field} not found in CSV columns: {list(df.columns)}"
                 )
                 return jsonify({"error": f"Field {csv_field} not found in CSV"}), 400
-
+            
             # Get the old value for logging
             old_value = company_row.iloc[0][csv_field]
             logger.info(f"Updating {csv_field} from {old_value} to {new_value}")
-
+            
             # Update the value
             df.loc[company_row.index, csv_field] = new_value
-
+            
             # Save the updated CSV
             df.to_csv(csv_path, index=False, encoding="utf-8")
             logger.info("CSV updated and saved successfully")
-
+            
             # Log the correction
             corrections_log = PROJECT_ROOT / "data/results/corrections_log.json"
             try:
@@ -1390,7 +1388,7 @@ def create_app():  # NOSONAR
                 logger.info("Correction logged successfully")
             except Exception as e:
                 logger.warning(f"Failed to log correction: {e}")
-
+            
             # Return the updated row data
             updated_row = (
                 df[
@@ -1408,7 +1406,7 @@ def create_app():  # NOSONAR
                     "updated": updated_row,
                 }
             )
-
+            
         except Exception as e:
             logger.error(f"Error correcting field value: {e}")
             return jsonify({"error": f"Failed to correct field value: {str(e)}"}), 500
@@ -1423,32 +1421,32 @@ def create_app():  # NOSONAR
             from pathlib import Path
             import json
             from datetime import datetime
-
+            
             # Get parameters from query string
             quarter_filter = request.args.get("quarter", "Q1")
             custom_date = request.args.get("custom_date", None)
             custom_filename = request.args.get("custom_filename", None)
-
+            
             # Add project root to Python path
             project_root = Path(__file__).parent.parent.parent
             sys.path.insert(0, str(project_root))
-
+            
             from src.utils.export_to_excel import ExcelExporter
             import pandas as pd
-
+            
             # Create exporter
             exporter = ExcelExporter()
-
+            
             # Load foreign ownership data (JSON)
             ownership_json_path = (
                 project_root / "data/ownership/foreign_ownership_data.json"
             )
             if not ownership_json_path.exists():
                 return jsonify({"error": "Ownership data file not found"}), 404
-
+            
             with open(ownership_json_path, "r", encoding="utf-8") as f:
                 ownership_data = json.load(f)
-
+            
             # Instead of loading static CSV, regenerate data with corrections applied
             # This ensures Excel export shows same data as dashboard
             logger.info("Regenerating flow data with corrections for Excel export...")
@@ -1462,14 +1460,14 @@ def create_app():  # NOSONAR
                 )
                 if recalc_result.returncode != 0:
                     logger.warning(f"Recalculation had issues: {recalc_result.stderr}")
-
+                
                 # Now load the updated CSV
                 csv_path = project_root / FLOW_CSV_RELPATH
                 if not csv_path.exists():
                     return jsonify(
                         {"error": "Retained earnings flow data file not found"}
                     ), 404
-
+                
                 flow_data = pd.read_csv(csv_path)
                 logger.info(
                     f"Loaded updated flow data with {len(flow_data)} rows for export"
@@ -1479,7 +1477,7 @@ def create_app():  # NOSONAR
                 return jsonify(
                     {"error": f"Failed to update data for export: {str(e)}"}
                 ), 500
-
+            
             # Create a map of flow data by symbol and quarter
             flow_map = {}
             for _, row in flow_data.iterrows():
@@ -1504,7 +1502,7 @@ def create_app():  # NOSONAR
                             "distributed_profits_foreign_investor", ""
                         ),
                     }
-
+            
             # Load net profit data
             net_profit_path = project_root / QUARTERLY_NET_PROFIT_RELPATH
             net_profit_data = {}
@@ -1515,7 +1513,7 @@ def create_app():  # NOSONAR
                         symbol = company.get("company_symbol")
                         if symbol:
                             net_profit_data[symbol] = company
-
+            
             # Handle custom date export
             if custom_date:
                 try:
@@ -1523,7 +1521,7 @@ def create_app():  # NOSONAR
                     custom_date_obj = datetime.strptime(custom_date, "%Y-%m-%d")
                     custom_year = custom_date_obj.year
                     custom_month = custom_date_obj.month
-
+                    
                     # Determine quarter from custom date
                     if custom_month in [1, 2, 3]:
                         custom_quarter = "Q1"
@@ -1533,7 +1531,7 @@ def create_app():  # NOSONAR
                         custom_quarter = "Q3"
                     else:  # 10, 11, 12
                         custom_quarter = "Q4"
-
+                    
                     # Override quarter filter with custom date quarter
                     quarter_filter = custom_quarter
                     logger.info(
@@ -1542,22 +1540,22 @@ def create_app():  # NOSONAR
                         custom_quarter,
                         custom_year,
                     )
-
+                    
                 except ValueError:
                     return jsonify(
                         {"error": "Invalid custom date format. Use YYYY-MM-DD"}
                     ), 400
-
+            
             # Merge the data for the selected quarter only
             merged_data = []
             for ownership_row in ownership_data:
                 symbol = str(ownership_row.get("symbol", "")).strip()
                 flow_info = flow_map.get(symbol, {})
                 net_profit_info = net_profit_data.get(symbol, {})
-
+                
                 # Only create row for the selected quarter
                 quarter_data = flow_info.get(quarter_filter, {})
-
+                
                 # Get net profit for this quarter
                 net_profit_value = MSG_NO_DATA_AR
                 if net_profit_info and "quarterly_net_profit" in net_profit_info:
@@ -1566,7 +1564,7 @@ def create_app():  # NOSONAR
                         net_profit_value = net_profit_info["quarterly_net_profit"][
                             quarter_key
                         ]
-
+                
                 # Get previous quarter for header
                 previous_quarter = ""
                 if quarter_filter == "Q1":
@@ -1577,7 +1575,7 @@ def create_app():  # NOSONAR
                     previous_quarter = "2025Q2"
                 elif quarter_filter == "Q4":
                     previous_quarter = "2025Q3"
-
+                
                 # Get current quarter for header
                 current_quarter = ""
                 if quarter_filter == "Q1":
@@ -1588,7 +1586,7 @@ def create_app():  # NOSONAR
                     current_quarter = "2025Q3"
                 elif quarter_filter == "Q4":
                     current_quarter = "2025Q4"
-
+                
                 # Handle values properly — show 0 instead of MSG_NO_DATA_AR when it's actually 0
                 def format_value(value):
                     if value == "" or value is None:
@@ -1599,7 +1597,7 @@ def create_app():  # NOSONAR
                         return "0"
                     else:
                         return value
-
+                
                 merged_row = {
                     "رمز الشركة": symbol,
                     "الشركة": ownership_row.get("company_name", ""),
@@ -1631,13 +1629,13 @@ def create_app():  # NOSONAR
                     ),
                 }
                 merged_data.append(merged_row)
-
+            
             # Convert to DataFrame
             data = pd.DataFrame(merged_data)
-
+            
             # Export dashboard table
             output_path = exporter.export_dashboard_table(data)
-
+            
             if output_path:
                 # Generate filename based on whether it's custom date or quarter
                 if custom_date:
@@ -1650,7 +1648,7 @@ def create_app():  # NOSONAR
                         filename = f"{custom_filename}_{quarter_filter}_2025_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
                     else:
                         filename = f"financial_analysis_{quarter_filter}_2025_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-
+                
                 # Return the file for download
                 return send_file(
                     output_path,
@@ -1660,7 +1658,7 @@ def create_app():  # NOSONAR
                 )
             else:
                 return jsonify({"error": "Failed to create Excel file"}), 500
-
+                
         except Exception as e:
             logger.error(f"Error exporting to Excel: {e}")
             return jsonify({"error": f"Export failed: {str(e)}"}), 500
@@ -1672,7 +1670,7 @@ def create_app():  # NOSONAR
         """
         try:
             logger.info("Manual ownership data update requested...")
-
+            
             # Check if ownership scraper exists and try to run it
             ownership_script = PROJECT_ROOT / "src/scrapers/ownership.py"
             if ownership_script.exists():
@@ -1693,7 +1691,7 @@ def create_app():  # NOSONAR
                     logger.error("Ownership scraper timed out")
                     return jsonify(
                         {
-                            "status": "error",
+                        "status": "error", 
                             "message": "Ownership scraper timed out. Please try again later.",
                         }
                     ), 500
@@ -1701,7 +1699,7 @@ def create_app():  # NOSONAR
                     logger.error(f"Ownership scraper failed: {e.stderr}")
                     return jsonify(
                         {
-                            "status": "error",
+                        "status": "error", 
                             "message": f"Ownership scraper failed: {e.stderr}",
                         }
                     ), 500
@@ -1709,12 +1707,12 @@ def create_app():  # NOSONAR
                 return jsonify(
                     {"status": "error", "message": "Ownership scraper not found"}
                 ), 404
-
+                
         except Exception as e:
             logger.error(f"Error updating ownership data: {e}")
             return jsonify(
                 {
-                    "status": "error",
+                "status": "error", 
                     "message": f"Failed to update ownership data: {str(e)}",
                 }
             ), 500
@@ -1855,19 +1853,19 @@ def create_app():  # NOSONAR
             net_profit_file = PROJECT_ROOT / QUARTERLY_NET_PROFIT_RELPATH
             if not net_profit_file.exists():
                 return jsonify({"error": "Net profit data not found"}), 404
-
+                
             with open(net_profit_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-
+            
             # Convert to lookup format for easier frontend use
             lookup_data = {}
             for company in data:
                 symbol = company.get("company_symbol")
                 if symbol:
                     lookup_data[symbol] = company
-
+            
             return jsonify(lookup_data)
-
+            
         except Exception as e:
             logger.error("Error serving net profit data: %s", e)
             return jsonify({"error": str(e)}), 500
@@ -1880,14 +1878,14 @@ def create_app():  # NOSONAR
         try:
             # Get quarter parameter from query string
             quarter = request.args.get("quarter", "Q1_2025")  # Default to Q1 2025
-
+            
             # Define the mapping logic for quarter references
             mapping_info = {
                 "requested_quarter": quarter,
                 "company_symbol": company_symbol,
                 "evidence_mapping": {},
             }
-
+            
             if quarter == "Q1_2025":
                 # Q1 2025: current quarter = Q1 2025, previous quarter = Annual 2024
                 mapping_info["evidence_mapping"] = {
@@ -1959,7 +1957,7 @@ def create_app():  # NOSONAR
                         "description": f"Evidence for {quarter}",
                     }
                 }
-
+            
             # Check which screenshots actually exist
             for quarter_type, info in mapping_info["evidence_mapping"].items():
                 if not isinstance(info, dict) or "screenshot_pattern" not in info:
@@ -1973,9 +1971,9 @@ def create_app():  # NOSONAR
                     info["screenshot_url"] = (
                         f"/api/evidence/{company_symbol}.png?quarter={quarter}"
                     )
-
+            
             return jsonify(mapping_info)
-
+            
         except Exception as e:
             logger.error(
                 "Error getting quarter mapping for %s: %s",
@@ -1992,7 +1990,7 @@ def create_app():  # NOSONAR
         try:
             # Get quarter parameter from query string
             quarter = request.args.get("quarter", "Q1_2025")  # Default to Q1 2025
-
+            
             # Determine what the "previous quarter" should be
             previous_quarter_pattern = ""
             if quarter in ("Q1_2025", "Annual_2024"):
@@ -2015,36 +2013,36 @@ def create_app():  # NOSONAR
                 # Fallback
                 previous_quarter_pattern = f"{company_symbol}_*_evidence.png"
                 previous_quarter_description = "Any available evidence"
-
+            
             # Search for previous quarter screenshot
             screenshot_files = list(SCREENSHOTS_DIR.glob(previous_quarter_pattern))
-
+            
             if not screenshot_files:
                 return jsonify(
                     {
-                        "error": "Previous quarter evidence not found",
-                        "company_symbol": company_symbol,
-                        "requested_quarter": quarter,
-                        "previous_quarter_pattern": previous_quarter_pattern,
+                    "error": "Previous quarter evidence not found",
+                    "company_symbol": company_symbol,
+                    "requested_quarter": quarter,
+                    "previous_quarter_pattern": previous_quarter_pattern,
                         "description": previous_quarter_description,
                     }
                 ), 404
-
+            
             # Return the previous quarter evidence info
             screenshot_path = screenshot_files[0]
             return jsonify(
                 {
-                    "company_symbol": company_symbol,
-                    "requested_quarter": quarter,
-                    "previous_quarter_description": previous_quarter_description,
-                    "previous_quarter_pattern": previous_quarter_pattern,
-                    "screenshots_found": [f.name for f in screenshot_files],
-                    "primary_screenshot": screenshot_path.name,
-                    "screenshot_url": f"/api/evidence/{company_symbol}.png?quarter={quarter}",
+                "company_symbol": company_symbol,
+                "requested_quarter": quarter,
+                "previous_quarter_description": previous_quarter_description,
+                "previous_quarter_pattern": previous_quarter_pattern,
+                "screenshots_found": [f.name for f in screenshot_files],
+                "primary_screenshot": screenshot_path.name,
+                "screenshot_url": f"/api/evidence/{company_symbol}.png?quarter={quarter}",
                     "note": "This endpoint specifically handles the case where 'previous quarter' for Q1 refers to Annual statement",
                 }
             )
-
+            
         except Exception as e:
             logger.error(
                 "Error getting previous quarter evidence for %s: %s",
@@ -2060,17 +2058,17 @@ def create_app():  # NOSONAR
         """
         try:
             logger.info("Manual quarterly archive trigger requested...")
-
+            
             # Call the scheduled function directly
             run_quarterly_refresh_and_archive(PROJECT_ROOT)
-
+            
             return jsonify(
                 {
-                    "status": "success",
+                "status": "success", 
                     "message": "Quarterly archiving process completed successfully",
                 }
             ), 200
-
+            
         except Exception as e:
             logger.error(f"Error in manual quarterly archive trigger: {e}")
             return jsonify(
@@ -2112,7 +2110,7 @@ def create_app():  # NOSONAR
             id="daily_ownership_and_recalc",
             replace_existing=True,
         )
-
+        
         scheduler.start()
         logger.info("[Scheduler] ✅ Quarterly scheduler started successfully")
         logger.info(
@@ -2148,3 +2146,4 @@ if __name__ == "__main__":
         f"API: http://{_flask_host}:{_flask_port} (set FLASK_HOST=0.0.0.0 for LAN/Docker)"
     )
     app.run(debug=_flask_debug, host=_flask_host, port=_flask_port)
+    
